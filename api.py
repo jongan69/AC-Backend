@@ -186,6 +186,61 @@ class TripPlanResponse(BaseModel):
     suggestions: Optional[str] = Field(None, description="Suggestions for optimizing the trip or saving money")
     warning: Optional[str] = Field(None, description="Warning or error messages about partial results or timeouts")
 
+class AirbnbSearchRequest(BaseModel):
+    check_in: str = Field(..., description="Check-in date in YYYY-MM-DD format")
+    check_out: str = Field(..., description="Check-out date in YYYY-MM-DD format")
+    ne_lat: float = Field(..., description="North-East latitude")
+    ne_long: float = Field(..., description="North-East longitude")
+    sw_lat: float = Field(..., description="South-West latitude")
+    sw_long: float = Field(..., description="South-West longitude")
+    zoom_value: int = Field(2, description="Zoom level for the map")
+    price_min: Optional[int] = Field(0, description="Minimum price")
+    price_max: Optional[int] = Field(0, description="Maximum price (0 for no max)")
+    place_type: Optional[str] = Field("", description="Room type: 'Private room', 'Entire home/apt', or empty")
+    amenities: Optional[List[int]] = Field(None, description="List of amenity IDs")
+    currency: str = Field("USD", description="Currency code")
+    language: str = Field("en", description="Language code")
+    proxy_url: str = Field("", description="Proxy URL if needed")
+    limit: int = Field(10, description="Max number of results to return")
+
+class AirbnbInfo(BaseModel):
+    room_id: int
+    name: str
+    title: Optional[str]
+    price: Optional[float]
+    per_night: Optional[float]
+    url: Optional[str]
+    rating: Optional[float]
+    review_count: Optional[int]
+    images: Optional[List[str]]
+    badges: Optional[List[str]]
+    latitude: Optional[float]
+    longitude: Optional[float]
+
+class AirbnbSearchResponse(BaseModel):
+    airbnbs: List[AirbnbInfo]
+    lowest_price: Optional[float]
+    current_price: Optional[float]
+
+class AirbnbDetailsRequest(BaseModel):
+    room_id: int = Field(..., description="Airbnb room/listing ID")
+    currency: str = Field("USD", description="Currency code")
+    language: str = Field("en", description="Language code")
+    proxy_url: str = Field("", description="Proxy URL if needed")
+
+class AirbnbDetailsResponse(BaseModel):
+    name: str
+    url: str
+    rating: Optional[float]
+    amenities: Optional[list[str]]
+    images: Optional[list[str]]
+    review_count: Optional[int]
+    description: Optional[str]
+    location: Optional[dict]
+    host_name: Optional[str]
+    is_superhost: Optional[bool]
+    
+
 # Initialize the categorizer once (loads models)
 categorizer = BankTransactionCategorizer()
 
@@ -640,60 +695,6 @@ async def plan_trip(req: TripPlanRequest):
     except Exception as e:
         logging.error(f"Trip plan error: {e}")
         raise HTTPException(status_code=400, detail=str(e)) 
-
-class AirbnbSearchRequest(BaseModel):
-    check_in: str = Field(..., description="Check-in date in YYYY-MM-DD format")
-    check_out: str = Field(..., description="Check-out date in YYYY-MM-DD format")
-    ne_lat: float = Field(..., description="North-East latitude")
-    ne_long: float = Field(..., description="North-East longitude")
-    sw_lat: float = Field(..., description="South-West latitude")
-    sw_long: float = Field(..., description="South-West longitude")
-    zoom_value: int = Field(2, description="Zoom level for the map")
-    price_min: Optional[int] = Field(0, description="Minimum price")
-    price_max: Optional[int] = Field(0, description="Maximum price (0 for no max)")
-    place_type: Optional[str] = Field("", description="Room type: 'Private room', 'Entire home/apt', or empty")
-    amenities: Optional[List[int]] = Field(None, description="List of amenity IDs")
-    currency: str = Field("USD", description="Currency code")
-    language: str = Field("en", description="Language code")
-    proxy_url: str = Field("", description="Proxy URL if needed")
-    limit: int = Field(10, description="Max number of results to return")
-
-class AirbnbInfo(BaseModel):
-    room_id: int
-    name: str
-    title: Optional[str]
-    price: Optional[float]
-    per_night: Optional[float]
-    url: Optional[str]
-    rating: Optional[float]
-    review_count: Optional[int]
-    images: Optional[List[str]]
-    badges: Optional[List[str]]
-    latitude: Optional[float]
-    longitude: Optional[float]
-
-class AirbnbSearchResponse(BaseModel):
-    airbnbs: List[AirbnbInfo]
-    lowest_price: Optional[float]
-    current_price: Optional[float]
-
-class AirbnbDetailsRequest(BaseModel):
-    room_id: int = Field(..., description="Airbnb room/listing ID")
-    currency: str = Field("USD", description="Currency code")
-    language: str = Field("en", description="Language code")
-    proxy_url: str = Field("", description="Proxy URL if needed")
-
-class AirbnbDetailsResponse(BaseModel):
-    name: str
-    url: str
-    rating: Optional[float]
-    amenities: Optional[list[str]]
-    images: Optional[list[str]]
-    review_count: Optional[int]
-    description: Optional[str]
-    location: Optional[dict]
-    host_name: Optional[str]
-    is_superhost: Optional[bool]
 
 @app.post("/airbnbs/search", response_model=AirbnbSearchResponse)
 def search_airbnbs(req: AirbnbSearchRequest):
