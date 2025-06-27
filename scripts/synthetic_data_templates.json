@@ -1,0 +1,444 @@
+{
+    "Travel": {
+      "Flights": {
+        "templates": [
+          "{airline} FLGT {flight_num} {city_pair}",
+          "CHECKCARD {airline_short} {date} {location}",
+          "Purchase {airline} {city_pair}",
+          "TICKET {airline} {random_id}"
+        ],
+        "placeholders": {
+          "airline": ["AMERICAN AIRLINES", "DELTA AIR LINES", "LUFTHANSA", "EMIRATES", "RYANAIR", "AIRASIA", "QANTAS"],
+          "airline_short": ["AA", "DL", "LH", "EK", "FR", "AK", "QF"],
+          "flight_num": ["###", "####"],
+          "city_pair": ["JFK-LAX", "CDG-DXB", "SYD-SIN", "LHR-MUC", "SFO-HND"],
+          "location": ["NEW YORK NY", "LONDON UK", "SINGAPORE", "ONLINE", "PARIS FR"],
+          "random_id": ["XXXXXXXXXX"],
+          "date": ["MM/DD/YYYY", "DD/MM/YYYY"]
+        }
+      },
+      "Hotels": {
+        "templates": [
+          "{hotel_chain} {city}",
+          "HOTEL {hotel_chain} {random_id}",
+          "Check-in {hotel_chain} {date}"
+        ],
+        "placeholders": {
+          "hotel_chain": ["MARRIOTT", "HILTON", "ACCOR", "Taj Hotels", "NH HOTELS", "RADISSON"],
+          "city": ["NEW YORK NY", "LONDON UK", "BANGKOK TH", "BERLIN DE", "CAPE TOWN ZA", "DUBAI UAE"],
+          "random_id": ["XXXXXXXX"],
+          "date": ["MM/DD/YYYY", "DD/MM/YYYY"]
+        }
+      },
+      "Ride_Sharing": {
+        "templates": [
+          "LYFT RIDE {day_of_week}",
+          "UBER TRIP {date}",
+          "BOLT RIDE {city}",
+          "GRAB TRIP {city}"
+        ],
+        "placeholders": {
+          "day_of_week": ["MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN"],
+          "date": ["MM/DD/YYYY", "DD/MM/YYYY"],
+          "city": ["NAIROBI KE", "JAKARTA ID", "WARSAW PL", "LAGOS NG", "MANILA PH"]
+        }
+      },
+      "Rail": {
+        "templates": [
+          "EUROSTAR ONLINE {city_pair}",
+          "TRENITALIA TICKET {city}",
+          "JR PASS {city_pair}"
+        ],
+        "placeholders": {
+          "city_pair": ["LONDON-PARIS", "TOKYO-OSAKA", "ROME-FLORENCE"],
+          "city": ["PARIS FR", "OSAKA JP", "FLORENCE IT"]
+        }
+      }
+    },
+    "Utilities_Recurring_Bills": {
+      "Electric": {
+        "templates": [
+          "EDF ENERGY PAYMENT",
+          "ENEL ITALY BILL",
+          "CON EDISON ONLINE PAYMENT",
+          "DUKE ENERGY PMT {random_id}"
+        ],
+        "placeholders": {
+          "random_id": ["XXXXXXXX"]
+        }
+      },
+      "Insurance": {
+        "templates": [
+          "GEICO AUTO PAYMENT",
+          "STATE FARM PMT",
+          "PROGRESSIVE INS {policy_num}",
+          "AXA INSURANCE DEBIT",
+          "AVIVA AUTO INS {policy_num}"
+        ],
+        "placeholders": {
+          "policy_num": ["#########"]
+        }
+      }
+    },
+    "Subscriptions_Memberships": {
+      "Sub_Other": {
+        "templates": [
+          "NETFLIX.COM {city}",
+          "SPOTIFY USA",
+          "DAZN UK PAYMENT",
+          "YOUTUBE PREMIUM",
+          "AMAZON PRIME RENEWAL",
+          "ONLYFANS",
+          "WECHAT SUBSCRIPTION",
+          "DISNEY+ {country_code}"
+        ],
+        "placeholders": {
+          "city": ["LOS GATOS CA", "LONDON UK", "SEOUL KR", "TORONTO CA"],
+          "country_code": ["US", "UK", "CA", "FR", "DE"]
+        }
+      }
+    },
+    "Food": {
+      "Dining_Restaurants": {
+        "templates": [
+          "TST*{restaurant_name} {city}",
+          "{restaurant_name} DINING",
+          "{restaurant_name} {currency_symbol}{amount} {country_code}"
+        ],
+        "placeholders": {
+          "restaurant_name": ["CHEESECAKE FACTORY", "OLIVE GARDEN", "PRET A MANGER", "WAGAMAMA", "PIZZAEXPRESS"],
+          "city": ["MIAMI FL", "LONDON UK", "TOKYO JP", "BARCELONA ES"],
+          "currency_symbol": ["$", "€", "£", "¥"],
+          "amount": ["12.45", "23.00", "9.99"],
+          "country_code": ["US", "GB", "JP", "ES"]
+        }
+      },
+      "Fast_Food": {
+        "templates": [
+          "MCDONALD'S F{store_num} {city}",
+          "WENDY'S STORE {store_num}",
+          "BURGER KING #{store_num}",
+          "JOLLIBEE {city}",
+          "KFC ONLINE {city}"
+        ],
+        "placeholders": {
+          "store_num": ["####", "#####"],
+          "city": ["MIAMI FL", "MANILA PH", "LONDON UK", "JOHANNESBURG ZA"]
+        }
+      }
+    },
+    "Mobile_Payments": {
+      "Mobile_Payments": {
+        "templates": [
+          "APPLE PAY {merchant_name} {city}",
+          "GOOGLE PAY - {merchant_name}",
+          "ALIPAY {merchant_name} {location}",
+          "MPESA TRANSFER {recipient}"
+        ],
+        "placeholders": {
+          "merchant_name": ["TESCO", "ZARA", "WALMART", "H&M", "GUCCI"],
+          "city": ["NEW YORK NY", "LONDON UK", "NAIROBI KE", "BEIJING CN"],
+          "location": ["ONLINE", "STORE #456"],
+          "recipient": ["+254712345678", "+8613800138000"]
+        }
+      }
+    },
+    "Credit_Card_Loan_Payments": {
+        "BNPL": {
+            "templates": ["KLARNA PAYMENT", "AFTERPAY PURCHASE", "AFFIRM INSTALLMENT"],
+            "placeholders": {}
+        },
+        "Auto_Loan_Payment": {
+            "templates": ["ALLY BANK PAYMENT", "FORD CREDIT AUTO PAY", "CAPITAL ONE AUTO LOAN", "WESTLAKESVCS PAYMENT"],
+            "placeholders": {}
+        },
+        "Installment_Loan": {
+            "templates": ["SOFI LOAN PAYMENT", "LENDINGCLUB PMT", "UPGRADE LOAN {loan_id}"],
+            "placeholders": {
+                "loan_id": ["LP#######"]
+            }
+        }
+    },
+    "Income_Credits": {
+        "Payroll_Income": {
+            "templates": ["DIRECT DEPOSIT {company_name}", "PAYROLL {employee_id}", "SALARY CREDIT {company_name}"],
+            "placeholders": {
+                "company_name": ["ACME CORP", "GLOBEX INC", "WAYSTAR ROYCO", "HILLSTONE RESTAU"],
+                "employee_id": ["EMP#####"]
+            }
+        }
+    },
+    "Transfers_Internal_Movement": {
+        "Bank_Transfer_To_Checking": {
+            "templates": ["ONLINE TRANSFER TO CHK ...{last_4}", "TRANSFER FROM SAV ...{last_4}"],
+            "placeholders": { "last_4": ["####"] }
+        },
+        "Bank_Transfer_From_Checking": {
+            "templates": ["ONLINE TRANSFER FROM CHK ...{last_4}", "TRANSFER TO SAV ...{last_4}"],
+            "placeholders": { "last_4": ["####"] }
+        },
+        "Keep_the_Change_Transfer": {
+            "templates": ["KEEP THE CHANGE TRANSFER", "KEEPTHECHANGE CREDIT FROM SAV"],
+            "placeholders": {}
+        }
+    },
+    "Debt_Collection": {
+        "Collections_Agencies": {
+            "templates": [
+                "{agency_name} COLLECTION",
+                "COLLECTION AGENCY {agency_name}",
+                "DEBT COLLECTION {agency_name}",
+                "{agency_name} DEBT RECOVERY"
+            ],
+            "placeholders": {
+                "agency_name": ["NATIONWIDE CREDIT", "ALLIED COLLECTION", "PREMIER RECOVERY", "FIRST SOURCE", "GLOBAL COLLECTIONS"]
+            }
+        }
+    },
+    "Business_Services": {
+        "IT_Services": {
+            "templates": [
+                "{company_name} IT SERVICES",
+                "TECH SUPPORT {company_name}",
+                "{company_name} SOFTWARE LICENSE",
+                "IT CONSULTING {company_name}"
+            ],
+            "placeholders": {
+                "company_name": ["GANESH SOFTWARE", "TECH SOLUTIONS INC", "DIGITAL CONSULTANTS", "IT PARTNERS", "TECHNOLOGY PROS"]
+            }
+        },
+        "Consulting": {
+            "templates": [
+                "{company_name} CONSULTING",
+                "BUSINESS CONSULTING {company_name}",
+                "{company_name} ADVISORY SERVICES",
+                "MANAGEMENT CONSULTING {company_name}"
+            ],
+            "placeholders": {
+                "company_name": ["GOOD LITTLE ROBOTS", "HIRENASTRO WORLD", "MCKINSEY", "BAIN & CO", "BCG", "DELOITTE"]
+            }
+        }
+    },
+    "Locker_Services": {
+        "Locker_Charges": {
+            "templates": [
+                "LOCKER RENTAL {location}",
+                "{company_name} LOCKER FEE",
+                "LOCKER SERVICE {location}",
+                "SAFE DEPOSIT {company_name}"
+            ],
+            "placeholders": {
+                "location": ["LOC 362", "BRANCH #123", "MAIN OFFICE", "DOWNTOWN"],
+                "company_name": ["BANK OF AMERICA", "WELLS FARGO", "CHASE BANK", "CITIBANK"]
+            }
+        }
+    },
+    "Education": {
+        "Educational_Services": {
+            "templates": [
+                "{school_name} TUITION",
+                "SCHOOL PAYMENT {school_name}",
+                "{university_name} FEES",
+                "EDUCATION PAYMENT {institution}"
+            ],
+            "placeholders": {
+                "school_name": ["THAKUR PUBLIC SCHOOL", "J K SHAH", "ST. MARY'S", "LINCOLN HIGH"],
+                "university_name": ["HARVARD UNIVERSITY", "STANFORD", "MIT", "YALE"],
+                "institution": ["COLLEGE OF EDUCATION", "TRAINING INSTITUTE", "LEARNING CENTER"]
+            }
+        }
+    },
+    "Kids": {
+        "K_Toys": {
+            "templates": [
+                "{store_name} TOYS",
+                "TOY STORE {store_name}",
+                "{brand_name} TOYS",
+                "KIDS TOYS {store_name}"
+            ],
+            "placeholders": {
+                "store_name": ["TOYSRUS", "TOYS R US", "FAO SCHWARZ", "BUILD-A-BEAR"],
+                "brand_name": ["LEGO", "MATTEL", "HASBRO", "FISHER-PRICE"]
+            }
+        }
+    },
+    "Person_To_Person": {
+        "Individual_Transfers": {
+            "templates": [
+                "TRANSFER TO {person_name}",
+                "PERSONAL TRANSFER {person_name}",
+                "SEND MONEY {person_name}",
+                "P2P TRANSFER {person_name}"
+            ],
+            "placeholders": {
+                "person_name": ["JOHN DOE", "JANE SMITH", "MIKE JOHNSON", "SARAH WILSON", "DAVID BROWN"]
+            }
+        }
+    },
+    "Government_Services": {
+        "Fees_and_Charges": {
+            "templates": [
+                "GOVERNMENT SERVICE FEE",
+                "{agency_name} FEE",
+                "GOVERNMENT PAYMENT {service}",
+                "{service} GOVERNMENT FEE"
+            ],
+            "placeholders": {
+                "agency_name": ["DMV", "IRS", "USPS", "SOCIAL SECURITY"],
+                "service": ["PASSPORT", "LICENSE", "PERMIT", "CERTIFICATE"]
+            }
+        }
+    },
+    "Retirement_Savings": {
+        "Pension_Provident_Fund": {
+            "templates": [
+                "PPF CONTRIBUTION",
+                "PENSION FUND {fund_name}",
+                "RETIREMENT SAVINGS {fund_name}",
+                "{fund_name} PENSION"
+            ],
+            "placeholders": {
+                "fund_name": ["VANGUARD", "FIDELITY", "SCHWAB", "T. ROWE PRICE"]
+            }
+        }
+    },
+    "Fees_Interest": {
+        "Bank_Fees": {
+            "templates": [
+                "MONTHLY MAINTENANCE FEE",
+                "{bank_name} SERVICE FEE",
+                "BANK FEE {fee_type}",
+                "{fee_type} FEE {bank_name}"
+            ],
+            "placeholders": {
+                "bank_name": ["BANK OF AMERICA", "CHASE", "WELLS FARGO", "CITIBANK"],
+                "fee_type": ["OVERDRAFT", "ATM", "WIRE TRANSFER", "STOP PAYMENT"]
+            }
+        },
+        "Interest_Charged_Purchases": {
+            "templates": [
+                "INTEREST CHARGED ON PURCHASES",
+                "CREDIT CARD INTEREST",
+                "PURCHASE INTEREST CHARGE",
+                "INTEREST ON PURCHASES"
+            ],
+            "placeholders": {}
+        }
+    },
+    "P2P_Digital_Wallets": {
+        "Cash_App": {
+            "templates": [
+                "CASH APP*{merchant}",
+                "CASHAPP PAYMENT",
+                "CASH APP TRANSFER",
+                "CASHAPP*{merchant}"
+            ],
+            "placeholders": {
+                "merchant": ["PAYMENT", "TRANSFER", "SEND", "RECEIVE"]
+            }
+        },
+        "Zelle": {
+            "templates": [
+                "ZELLE PAYMENT TO {recipient}",
+                "ZELLE TRANSFER {recipient}",
+                "ZELLE PAYMENT FROM {sender}",
+                "ZELLE {recipient}"
+            ],
+            "placeholders": {
+                "recipient": ["JOHN DOE", "JANE SMITH", "MIKE JOHNSON"],
+                "sender": ["JOHN DOE", "JANE SMITH", "MIKE JOHNSON"]
+            }
+        },
+        "Venmo": {
+            "templates": [
+                "VENMO PAYMENT",
+                "VENMO TRANSFER",
+                "VENMO {recipient}",
+                "VENMO PAYMENT TO {recipient}"
+            ],
+            "placeholders": {
+                "recipient": ["JOHN DOE", "JANE SMITH", "MIKE JOHNSON"]
+            }
+        },
+        "Paytm": {
+            "templates": [
+                "PAYTM PAYMENT",
+                "PAYTM TRANSFER",
+                "PAYTM {merchant}",
+                "PAYTM PAYMENT TO {recipient}"
+            ],
+            "placeholders": {
+                "merchant": ["MERCHANT", "STORE", "SHOP"],
+                "recipient": ["JOHN DOE", "JANE SMITH", "MIKE JOHNSON"]
+            }
+        },
+        "Razorpay": {
+            "templates": [
+                "RAZORPAY PAYMENT",
+                "RAZORPAY TRANSFER",
+                "RAZORPAY {merchant}",
+                "RAZORPAY PAYMENT TO {recipient}"
+            ],
+            "placeholders": {
+                "merchant": ["MERCHANT", "STORE", "SHOP"],
+                "recipient": ["JOHN DOE", "JANE SMITH", "MIKE JOHNSON"]
+            }
+        }
+    },
+    "Bank_Internal_Processing": {
+        "Internal_Codes": {
+            "templates": [
+                "ISS/{code}",
+                "CVOR/{code}",
+                "TRTR/{code}",
+                "EAW-{code}",
+                "ATW-{code}",
+                "NWD-{code}",
+                "CHDR/{code}",
+                "CWDR/{code}",
+                "OWDR/{code}",
+                "CV0R/{code}",
+                "DLIN/{code}",
+                "UPT/{code}",
+                "BY CLC:{code}",
+                "BY INST {code}",
+                "BY CC:{code}"
+            ],
+            "placeholders": {
+                "code": ["####", "#####", "######"]
+            }
+        }
+    },
+    "Digital_Payments": {
+        "UPI": {
+            "templates": [
+                "UPI PAYMENT",
+                "UPI {merchant}",
+                "UPI TRANSFER",
+                "UPI PAYMENT TO {recipient}",
+                "OKHDFCBANK UPI",
+                "@HDFCBANK UPI",
+                "@OKBIZAXIS UPI",
+                "@ICICI UPI",
+                "@C UPI",
+                "CBANK UPI"
+            ],
+            "placeholders": {
+                "merchant": ["MERCHANT", "STORE", "SHOP"],
+                "recipient": ["JOHN DOE", "JANE SMITH", "MIKE JOHNSON"]
+            }
+        },
+        "QR_Code": {
+            "templates": [
+                "QR PAYMENT",
+                "QR CODE PAYMENT",
+                "QR TRANSFER",
+                "QR PAYMENT TO {recipient}"
+            ],
+            "placeholders": {
+                "recipient": ["JOHN DOE", "JANE SMITH", "MIKE JOHNSON"]
+            }
+        }
+    }
+  }
+  
