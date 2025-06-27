@@ -5,7 +5,7 @@ torch==2.7.1
 transformers==4.41.2
 scikit-learn==1.4.2
 tensorflow==2.16.1
-nltk==3.8.1
+nltk==3.9
 optuna==3.6.1
 openpyxl==3.1.2
 annotated-types==0.7.0
