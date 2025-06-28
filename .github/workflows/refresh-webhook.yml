@@ -1,0 +1,70 @@
+name: Refresh Webhook
+
+on:
+  schedule:
+    - cron: '0 0 */14 * *' # Every 2 weeks
+  workflow_dispatch:
+
+jobs:
+  refresh-webhook:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Fetch ngrok endpoint and call /refresh-webhook
+        env:
+          NGROK_API_KEY: ${{ secrets.NGROK_API_KEY }}
+        run: |
+          set -e
+
+          # Retry function
+          retry() {
+            local n=1
+            local max=3
+            local delay=2
+            while true; do
+              "$@" && break || {
+                if [[ $n -lt $max ]]; then
+                  ((n++))
+                  echo "Command failed. Attempt $n/$max:"
+                  sleep $delay;
+                  delay=$((delay*2))
+                else
+                  echo "The command has failed after $n attempts."
+                  return 1
+                fi
+              }
+            done
+          }
+
+          # Fetch ngrok tunnels with retries
+          NGROK_JSON=$(retry curl -sSL -H "Authorization: Bearer $NGROK_API_KEY" -H "Ngrok-Version: 2" https://api.ngrok.com/tunnels)
+
+          # Extract the first HTTPS tunnel
+          ENDPOINT=$(echo "$NGROK_JSON" | jq -r '.tunnels[] | select(.public_url | startswith("https://")) | .public_url' | head -n1)
+
+          if [ -z "$ENDPOINT" ]; then
+            echo "No HTTPS tunnel found."
+            exit 1
+          fi
+
+          echo "Found endpoint: $ENDPOINT"
+
+          # Health check
+          HEALTH_STATUS=$(curl -sSL "$ENDPOINT/health" | jq -r '.status')
+          if [ "$HEALTH_STATUS" != "healthy" ]; then
+            echo "Endpoint health check failed: $HEALTH_STATUS"
+            exit 1
+          fi
+
+          echo "Endpoint is healthy. Calling /refresh-webhook..."
+
+          # Call /refresh-webhook
+          RESPONSE=$(curl -sSL -w "\n%{http_code}" "$ENDPOINT/refresh-webhook")
+          BODY=$(echo "$RESPONSE" | head -n-1)
+          STATUS=$(echo "$RESPONSE" | tail -n1)
+
+          echo "Response status: $STATUS"
+          echo "Response body: $BODY"
+
+          if [ "$STATUS" -ge 400 ]; then
+            exit 1
+          fi 
