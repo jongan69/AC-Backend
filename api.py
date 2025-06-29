@@ -20,6 +20,7 @@ import json
 import requests
 from dotenv import load_dotenv
 from predicthq import Client
+import nltk
 
 load_dotenv()
 
@@ -1009,4 +1010,15 @@ def get_itinerary(
         raise HTTPException(status_code=500, detail=f"Failed to fetch itinerary: {err}")
     except Exception as err:
         logging.error(f"Itinerary endpoint error: {err}")
-        raise HTTPException(status_code=500, detail=f"Failed to fetch itinerary: {err}") 
+        raise HTTPException(status_code=500, detail=f"Failed to fetch itinerary: {err}")
+
+def ensure_nltk_resource(resource):
+    try:
+        nltk.data.find(resource)
+    except LookupError:
+        nltk.download(resource.split('/')[-1])
+
+# Ensure required NLTK resources are available
+ensure_nltk_resource('corpora/wordnet')
+ensure_nltk_resource('corpora/omw-1.4')
+ensure_nltk_resource('corpora/stopwords') 
