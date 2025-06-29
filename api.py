@@ -17,6 +17,10 @@ import time
 from multiprocessing import Process, Queue
 import pyairbnb
 import json
+import requests
+from dotenv import load_dotenv
+
+load_dotenv()
 
 # Helper functions for parsing price and stops and run blocking operations
 def _parse_price(price):
@@ -850,4 +854,115 @@ def airbnb_details(req: AirbnbDetailsRequest):
         )
     except Exception as e:
         logging.error(f"Airbnb details error: {e}")
-        raise HTTPException(status_code=400, detail=str(e)) 
+        raise HTTPException(status_code=400, detail=str(e))
+
+# --- Itinerary Category Groups and Time Slots ---
+CATEGORY_GROUPS = {
+    "Food": ["Restaurant", "Burger Joint", "Coffee Shop", "Bakery"],
+    "Attractions": ["Museum", "Art Gallery", "Theme Park", "Aquarium", "Zoo"],
+    "Nature": ["Park", "Scenic Lookout", "Beach", "Garden", "Trail"],
+    "Nightlife": ["Bar", "Lounge", "Nightclub"],
+    "Shopping": ["Mall", "Boutique", "Gift Shop", "Market"],
+    "Entertainment": ["Arcade", "Bowling Alley", "Movie Theater"]
+}
+
+TIME_SLOTS = {
+    "morning": (6, 12),
+    "afternoon": (12, 17),
+    "evening": (17, 21),
+    "night": (21, 2)  # special case
+}
+
+def infer_category(category_name: str) -> str:
+    for group, values in CATEGORY_GROUPS.items():
+        if any(v.lower() in category_name.lower() for v in values):
+            return group
+    return "Other"
+
+def determine_time_slot(hours: dict) -> list:
+    if not hours or not hours.get("regular") or not isinstance(hours["regular"], list):
+        return []
+    now = datetime.now()
+    current_hour = now.hour
+    slot_tags = []
+    for slot, (start, end) in TIME_SLOTS.items():
+        if slot == "night":
+            if current_hour >= 21 or current_hour < 2:
+                slot_tags.append("night")
+        elif current_hour >= start and current_hour < end:
+            slot_tags.append(slot)
+    return slot_tags
+
+@app.get("/itinerary")
+def get_itinerary(
+    lat: float,
+    lng: float,
+    radius: float = 10000,
+    limit: int = 30,
+    query: str = "",
+    open_now: str = "false"
+):
+    if not lat or not lng:
+        raise HTTPException(status_code=400, detail="Missing 'lat' or 'lng'")
+    params = {
+        "ll": f"{lat},{lng}",
+        "radius": str(radius),
+        "limit": str(limit),
+        "sort": "relevance"
+    }
+    if query:
+        params["query"] = query
+    if open_now == "true":
+        params["open_now"] = "true"
+    try:
+        api_key = os.environ.get("FOURSQUARE_API_KEY")
+        if not api_key:
+            raise HTTPException(status_code=500, detail="FOURSQUARE_API_KEY not set in environment")
+        headers = {
+            "accept": "application/json",
+            "authorization": f"Bearer {api_key}",
+            "X-Places-Api-Version": "2025-06-17"
+        }
+        response = requests.get(
+            "https://places-api.foursquare.com/places/search",
+            params=params,
+            headers=headers,
+            timeout=15
+        )
+        response.raise_for_status()
+        data = response.json()
+        results = data.get("results", [])
+        grouped = {}
+        for place in results:
+            categoryName = place.get("categories", [{}])[0].get("name", "Unknown")
+            group = infer_category(categoryName)
+            timeSlots = determine_time_slot(place.get("hours"))
+            icon = None
+            cat = place.get("categories", [{}])[0]
+            if cat.get("icon"):
+                icon = f"{cat['icon']['prefix']}64{cat['icon']['suffix']}"
+            placeObj = {
+                "id": place.get("fsq_place_id"),
+                "name": place.get("name"),
+                "address": place.get("location", {}).get("formatted_address", ""),
+                "category": categoryName,
+                "icon": icon,
+                "distance_m": place.get("distance"),
+                "rating": place.get("rating"),
+                "price_level": place.get("price"),
+                "open_now": place.get("hours", {}).get("open_now"),
+                "time_slots": timeSlots,
+                "lat": place.get("latitude"),
+                "lng": place.get("longitude"),
+                "website": place.get("website")
+            }
+            if group not in grouped:
+                grouped[group] = []
+            grouped[group].append(placeObj)
+        return {"itinerary": grouped}
+    except requests.RequestException as err:
+        logging.error(f"Foursquare API error: {err}")
+        raise HTTPException(status_code=500, detail=f"Failed to fetch itinerary: {err}")
+    except Exception as err:
+        logging.error(f"Itinerary endpoint error: {err}")
+        raise HTTPException(status_code=500, detail=f"Failed to fetch itinerary: {err}") 
