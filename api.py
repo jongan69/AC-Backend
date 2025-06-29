@@ -1,3 +1,4 @@
+import utils.nltk_bootstrap # noqa
 from datetime import datetime
 import os
 from fastapi import FastAPI, HTTPException
@@ -1012,13 +1013,3 @@ def get_itinerary(
         logging.error(f"Itinerary endpoint error: {err}")
         raise HTTPException(status_code=500, detail=f"Failed to fetch itinerary: {err}")
 
-def ensure_nltk_resource(resource):
-    try:
-        nltk.data.find(resource)
-    except LookupError:
-        nltk.download(resource.split('/')[-1])
-
-# Ensure required NLTK resources are available
-ensure_nltk_resource('corpora/wordnet')
-ensure_nltk_resource('corpora/omw-1.4')
-ensure_nltk_resource('corpora/stopwords') 
