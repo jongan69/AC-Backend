@@ -19,8 +19,12 @@ import pyairbnb
 import json
 import requests
 from dotenv import load_dotenv
+from predicthq import Client
 
 load_dotenv()
+
+# Initialize PredictHQ client
+phq = Client(access_token=os.environ.get("PREDICTHQ_ACCESS_TOKEN"))
 
 # Helper functions for parsing price and stops and run blocking operations
 def _parse_price(price):
@@ -897,6 +901,8 @@ def determine_time_slot(hours: dict) -> list:
 def get_itinerary(
     lat: float,
     lng: float,
+    start_date: str,  # YYYY-MM-DD
+    end_date: str,    # YYYY-MM-DD
     radius: float = 10000,
     limit: int = 30,
     query: str = "",
@@ -904,17 +910,26 @@ def get_itinerary(
 ):
     if not lat or not lng:
         raise HTTPException(status_code=400, detail="Missing 'lat' or 'lng'")
-    params = {
-        "ll": f"{lat},{lng}",
-        "radius": str(radius),
-        "limit": str(limit),
-        "sort": "relevance"
-    }
-    if query:
-        params["query"] = query
-    if open_now == "true":
-        params["open_now"] = "true"
+    if not start_date or not end_date:
+        raise HTTPException(status_code=400, detail="Missing 'start_date' or 'end_date'")
     try:
+        # Validate date format
+        try:
+            datetime.strptime(start_date, "%Y-%m-%d")
+            datetime.strptime(end_date, "%Y-%m-%d")
+        except Exception:
+            raise HTTPException(status_code=400, detail="start_date and end_date must be in YYYY-MM-DD format")
+        # --- Foursquare Places ---
+        params = {
+            "ll": f"{lat},{lng}",
+            "radius": str(radius),
+            "limit": str(limit),
+            "sort": "relevance"
+        }
+        if query:
+            params["query"] = query
+        if open_now == "true":
+            params["open_now"] = "true"
         api_key = os.environ.get("FOURSQUARE_API_KEY")
         if not api_key:
             raise HTTPException(status_code=500, detail="FOURSQUARE_API_KEY not set in environment")
@@ -959,6 +974,35 @@ def get_itinerary(
             if group not in grouped:
                 grouped[group] = []
             grouped[group].append(placeObj)
+        # --- PredictHQ Events ---
+        events = []
+        try:
+            # PredictHQ expects 'within' as '{radius}{unit}@{lat},{lng}', e.g. '10km@-36.84,174.76'
+            phq_within = f"{int(radius/1000)}km@{lat},{lng}"
+            phq_start = {
+                'gte': start_date,
+                'lte': end_date
+            }
+            for event in phq.events.search(within=phq_within, start=phq_start):
+                events.append({
+                    "id": event.id,
+                    "title": event.title,
+                    "category": event.category,
+                    "rank": event.rank,
+                    "start": event.start.strftime('%Y-%m-%dT%H:%M:%S'),
+                    "end": event.end.strftime('%Y-%m-%dT%H:%M:%S') if hasattr(event, 'end') and event.end else None,
+                    "location": event.location,
+                    "place_hierarchies": getattr(event, 'place_hierarchies', None),
+                    "description": getattr(event, 'description', None),
+                    "labels": getattr(event, 'labels', None),
+                    "timezone": getattr(event, 'timezone', None),
+                    "phq_attendance": getattr(event, 'phq_attendance', None),
+                    "phq_rank": getattr(event, 'phq_rank', None),
+                })
+        except Exception as e:
+            logging.error(f"PredictHQ events error: {e}")
+        if events:
+            grouped["Events"] = events
         return {"itinerary": grouped}
     except requests.RequestException as err:
         logging.error(f"Foursquare API error: {err}")

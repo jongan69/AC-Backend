@@ -34,3 +34,4 @@ tzdata==2024.1
 pyairbnb
 requests
 python-dotenv
+predicthq
