@@ -1,39 +1,334 @@
-import utils.nltk_bootstrap # noqa
-from datetime import datetime
+###############################
+# Standard Library Imports    #
+###############################
 import os
+import re
+import io
+import csv
+import math
+import json
+import time
+import logging
+import asyncio
+from datetime import datetime
+from functools import partial, lru_cache
+from concurrent.futures import ThreadPoolExecutor
+from multiprocessing import Process, Queue
+
+###############################
+# Third-Party Imports         #
+###############################
+import pandas as pd
+import requests
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field, field_validator
 from typing import List, Optional, Dict, Any
-from fast_hotels.hotels_impl import HotelData, Guests
-from fast_hotels import get_hotels
-from fast_flights import FlightData, Passengers, get_flights, create_filter
-import logging
-import re
-import pandas as pd
-import asyncio
-from concurrent.futures import ThreadPoolExecutor
-from functools import partial
-from utils.api_predict import BankTransactionCategorizer
-import time
-from multiprocessing import Process, Queue
-import pyairbnb
-import json
-import requests
 from dotenv import load_dotenv
 from predicthq import Client
 import nltk
-import io
-import math
-from functools import lru_cache
-import csv
+
+###############################
+# Local Application Imports   #
+###############################
+import utils.nltk_bootstrap # noqa
+from utils.api_predict import BankTransactionCategorizer
+from fast_hotels.hotels_impl import HotelData, Guests
+from fast_hotels import get_hotels
+from fast_flights import FlightData, Passengers, get_flights, create_filter
+import pyairbnb
 
 load_dotenv()
 
 # Initialize PredictHQ client
 phq = Client(access_token=os.environ.get("PREDICTHQ_ACCESS_TOKEN"))
 
+###############################
+# Constants & Configuration   #
+###############################
+
+# Extensive mapping of major cities to their main IATA airport codes
+CITY_TO_IATA = {
+    # --- North America ---
+    # United States
+    "atlanta": "ATL",
+    "baltimore": "BWI",
+    "boston": "BOS",
+    "charlotte": "CLT",
+    "chicago": "ORD",
+    "dallas": "DFW",
+    "denver": "DEN",
+    "detroit": "DTW",
+    "fort lauderdale": "FLL",
+    "honolulu": "HNL",
+    "houston": "IAH",
+    "las vegas": "LAS",
+    "los angeles": "LAX",
+    "miami": "MIA",
+    "minneapolis": "MSP",
+    "new york": "JFK",
+    "newark": "EWR",
+    "orlando": "MCO",
+    "philadelphia": "PHL",
+    "phoenix": "PHX",
+    "portland": "PDX",
+    "san diego": "SAN",
+    "san francisco": "SFO",
+    "san jose": "SJC",
+    "seattle": "SEA",
+    "tampa": "TPA",
+    "washington": "IAD",
+    # Canada
+    "calgary": "YYC",
+    "edmonton": "YEG",
+    "halifax": "YHZ",
+    "montreal": "YUL",
+    "ottawa": "YOW",
+    "toronto": "YYZ",
+    "vancouver": "YVR",
+    "winnipeg": "YWG",
+    # Mexico
+    "cancun": "CUN",
+    "guadalajara": "GDL",
+    "mexico city": "MEX",
+    # --- South America ---
+    # Argentina
+    "buenos aires": "EZE",
+    # Brazil
+    "brasilia": "BSB",
+    "recife": "REC",
+    "rio de janeiro": "GIG",
+    "salvador": "SSA",
+    "sao paulo": "GRU",
+    # Chile
+    "antofagasta": "ANF",
+    "santiago": "SCL",
+    # Colombia
+    "bogota": "BOG",
+    "medellin": "MDE",
+    # Peru
+    "lima": "LIM",
+    # Uruguay
+    "montevideo": "MVD",
+    # Venezuela
+    "caracas": "CCS",
+    # Ecuador
+    "quito": "UIO",
+    # --- Europe ---
+    # Austria
+    "vienna": "VIE",
+    # Belgium
+    "brussels": "BRU",
+    # Czech Republic
+    "prague": "PRG",
+    # Denmark
+    "copenhagen": "CPH",
+    # Finland
+    "helsinki": "HEL",
+    # France
+    "lyon": "LYS",
+    "nice": "NCE",
+    "orly": "ORY",
+    "paris": "CDG",
+    # Germany
+    "berlin": "BER",
+    "frankfurt": "FRA",
+    "hamburg": "HAM",
+    "munich": "MUC",
+    # Greece
+    "athens": "ATH",
+    # Hungary
+    "budapest": "BUD",
+    # Ireland
+    "dublin": "DUB",
+    # Italy
+    "milan": "MXP",
+    "naples": "NAP",
+    "rome": "FCO",
+    "venice": "VCE",
+    # Netherlands
+    "amsterdam": "AMS",
+    # Norway
+    "oslo": "OSL",
+    # Poland
+    "krakow": "KRK",
+    "warsaw": "WAW",
+    # Portugal
+    "lisbon": "LIS",
+    "porto": "OPO",
+    # Russia
+    "domodedovo": "DME",
+    "moscow": "SVO",
+    "vnukovo": "VKO",
+    # Spain
+    "barcelona": "BCN",
+    "madrid": "MAD",
+    "malaga": "AGP",
+    "palma de mallorca": "PMI",
+    # Sweden
+    "stockholm": "ARN",
+    # Switzerland
+    "basel": "BSL",
+    "geneva": "GVA",
+    "zurich": "ZRH",
+    # Turkey
+    "istanbul": "IST",
+    # United Kingdom
+    "edinburgh": "EDI",
+    "gatwick": "LGW",
+    "london": "LHR",
+    "manchester": "MAN",
+    "stansted": "STN",
+    # --- Asia ---
+    # China
+    "beijing": "PEK",
+    "chengdu": "CTU",
+    "guangzhou": "CAN",
+    "kunming": "KMG",
+    "shanghai": "PVG",
+    "shenzhen": "SZX",
+    "xian": "XIY",
+    # Hong Kong
+    "hong kong": "HKG",
+    # India
+    "bangalore": "BLR",
+    "chennai": "MAA",
+    "delhi": "DEL",
+    "hyderabad": "HYD",
+    "kolkata": "CCU",
+    "mumbai": "BOM",
+    # Indonesia
+    "bali": "DPS",
+    "denpasar": "DPS",
+    "jakarta": "CGK",
+    "surabaya": "SUB",
+    # Japan
+    "fukuoka": "FUK",
+    "narita": "NRT",
+    "osaka": "KIX",
+    "sapporo": "CTS",
+    "tokyo": "HND",
+    # Malaysia
+    "kuala lumpur": "KUL",
+    "penang": "PEN",
+    # Pakistan
+    "islamabad": "ISB",
+    "karachi": "KHI",
+    "lahore": "LHE",
+    # Philippines
+    "cebu": "CEB",
+    "davao": "DVO",
+    "manila": "MNL",
+    # Qatar
+    "doha": "DOH",
+    # Singapore
+    "singapore": "SIN",
+    # South Korea
+    "gimpo": "GMP",
+    "seoul": "ICN",
+    # Taiwan
+    "taipei": "TPE",
+    # Thailand
+    "bangkok": "BKK",
+    "phuket": "HKT",
+    # UAE
+    "abu dhabi": "AUH",
+    "dubai": "DXB",
+    "sharjah": "SHJ",
+    # Vietnam
+    "hanoi": "HAN",
+    "ho chi minh city": "SGN",
+    # --- Oceania ---
+    # Australia
+    "adelaide": "ADL",
+    "brisbane": "BNE",
+    "cairns": "CNS",
+    "gold coast": "OOL",
+    "melbourne": "MEL",
+    "perth": "PER",
+    "sydney": "SYD",
+    # New Zealand
+    "auckland": "AKL",
+    "christchurch": "CHC",
+    "queenstown": "ZQN",
+    "wellington": "WLG",
+    # --- Africa ---
+    # Egypt
+    "cairo": "CAI",
+    "sharm el sheikh": "SSH",
+    # Ethiopia
+    "addis ababa": "ADD",
+    # Ghana
+    "accra": "ACC",
+    # Kenya
+    "mombasa": "MBA",
+    "nairobi": "NBO",
+    # Morocco
+    "casablanca": "CMN",
+    "marrakesh": "RAK",
+    # Nigeria
+    "abuja": "ABV",
+    "lagos": "LOS",
+    "port harcourt": "PHC",
+    # Senegal
+    "dakar": "DSS",
+    # South Africa
+    "cape town": "CPT",
+    "johannesburg": "JNB",
+    # --- Middle East ---
+    # Iran
+    "mashhad": "MHD",
+    "tehran": "IKA",
+    # Iraq
+    "baghdad": "BGW",
+    # Israel
+    "eilat": "ETM",
+    "tel aviv": "TLV",
+    # Jordan
+    "amman": "AMM",
+    # Kuwait
+    "kuwait city": "KWI",
+    # Lebanon
+    "beirut": "BEY",
+    # Oman
+    "muscat": "MCT",
+    # Qatar
+    "dammam": "DMM",
+    "jeddah": "JED",
+    "riyadh": "RUH",
+    # Turkey
+    "istanbul": "IST",
+    # UAE
+    "abu dhabi": "AUH",
+    "dubai": "DXB",
+    "sharjah": "SHJ",
+    # --- Country-level fallbacks ---
+    "united states": "JFK",
+    "canada": "YYZ",
+    "brazil": "GRU",
+    "argentina": "EZE",
+    "germany": "FRA",
+    "france": "CDG",
+    "italy": "FCO",
+    "spain": "MAD",
+    "united kingdom": "LHR",
+    "japan": "HND",
+    "china": "PEK",
+    "india": "DEL",
+    "australia": "SYD",
+    "new zealand": "AKL",
+    "south africa": "JNB",
+    "egypt": "CAI",
+    "turkey": "IST",
+    "russia": "SVO",
+    "uae": "DXB",
+    "qatar": "DOH",
+}
+
+AIRPORTS_CSV_URL = "https://raw.githubusercontent.com/lxndrblz/Airports/refs/heads/main/airports.csv"
+
 # Helper functions for parsing price and stops and run blocking operations
 def _parse_price(price):
+    """Parse a price string or number and return a float value, or None if invalid."""
     if isinstance(price, str):
         # Remove any non-numeric characters except dot and comma
         match = re.search(r"[\d,.]+", price)
@@ -44,6 +339,7 @@ def _parse_price(price):
     return price
 
 def _parse_stops(stops):
+    """Parse the number of stops from various input types and return as int or None."""
     try:
         if stops is None:
             return None
@@ -55,9 +351,11 @@ def _parse_stops(stops):
         return None
     
 def _run_blocking(func, *args, **kwargs):
+    """Run a blocking function synchronously (for use in async context)."""
     return func(*args, **kwargs)
 
 async def run_blocking(func, *args, **kwargs):
+    """Run a blocking function in an executor, returning the result asynchronously."""
     loop = asyncio.get_running_loop()
     # Use the default executor (None) for more flexibility
     return await loop.run_in_executor(None, _run_blocking, func, *args, **kwargs)
@@ -65,6 +363,55 @@ async def run_blocking(func, *args, **kwargs):
 app = FastAPI(title="Travel API", description="Plan your trip with the best flight and hotel options")
 
 logging.basicConfig(level=logging.INFO)
+
+###############################
+# Helper Functions            #
+###############################
+
+# Helper to log before/after each blocking task and enforce a hard timeout
+
+def call_with_timeout(func, timeout, *args, **kwargs):
+    """Run a function in a separate process with a timeout. Raise TimeoutError if exceeded."""
+    def target(q, *args, **kwargs):
+        import logging
+        try:
+            logging.info(f"{func.__name__} started with args={args}, kwargs={kwargs}")
+            result = func(*args, **kwargs)
+            q.put(result)
+            logging.info(f"{func.__name__} finished successfully")
+        except Exception as e:
+            logging.error(f"{func.__name__} failed: {e}")
+            q.put(e)
+    q = Queue()
+    p = Process(target=target, args=(q,)+args, kwargs=kwargs)
+    p.start()
+    p.join(timeout)
+    if p.is_alive():
+        p.terminate()
+        logging.error(f"{func.__name__} timed out after {timeout} seconds")
+        raise TimeoutError(f"{func.__name__} timed out after {timeout} seconds")
+    if not q.empty():
+        result = q.get()
+        if isinstance(result, Exception):
+            raise result
+        return result
+    else:
+        raise TimeoutError(f"{func.__name__} did not return a result")
+
+async def run_blocking_with_log(label, func, *args, **kwargs):
+    """Run a blocking function asynchronously with logging before and after execution."""
+    logging.info(f"Task {label} started")
+    try:
+        result = await run_blocking(func, *args, **kwargs)
+        logging.info(f"Task {label} finished successfully")
+        return result
+    except Exception as e:
+        logging.error(f"Task {label} failed: {e}")
+        raise
+
+###############################
+# Data Models (Pydantic)      #
+###############################
 
 class Transaction(BaseModel):
     Description: str
@@ -261,55 +608,23 @@ categorizer = BankTransactionCategorizer()
 # Initialize the executor for blocking operations
 executor = ThreadPoolExecutor(max_workers=4)  # Lower for Raspberry Pi
 
-# Helper to log before/after each blocking task and enforce a hard timeout
-
-def call_with_timeout(func, timeout, *args, **kwargs):
-    def target(q, *args, **kwargs):
-        import logging
-        try:
-            logging.info(f"{func.__name__} started with args={args}, kwargs={kwargs}")
-            result = func(*args, **kwargs)
-            q.put(result)
-            logging.info(f"{func.__name__} finished successfully")
-        except Exception as e:
-            logging.error(f"{func.__name__} failed: {e}")
-            q.put(e)
-    q = Queue()
-    p = Process(target=target, args=(q,)+args, kwargs=kwargs)
-    p.start()
-    p.join(timeout)
-    if p.is_alive():
-        p.terminate()
-        logging.error(f"{func.__name__} timed out after {timeout} seconds")
-        raise TimeoutError(f"{func.__name__} timed out after {timeout} seconds")
-    if not q.empty():
-        result = q.get()
-        if isinstance(result, Exception):
-            raise result
-        return result
-    else:
-        raise TimeoutError(f"{func.__name__} did not return a result")
-
-async def run_blocking_with_log(label, func, *args, **kwargs):
-    logging.info(f"Task {label} started")
-    try:
-        result = await run_blocking(func, *args, **kwargs)
-        logging.info(f"Task {label} finished successfully")
-        return result
-    except Exception as e:
-        logging.error(f"Task {label} failed: {e}")
-        raise
+###############################
+# API Endpoints               #
+###############################
 
 @app.get("/health")
 def health_check():
+    """Health check endpoint. Returns API status and current timestamp."""
     return {"status": "healthy", "timestamp": datetime.now().isoformat()}
 
 @app.get("/")
 def root():
+    """Root endpoint. Returns API status and documentation links."""
     return {"message": "Travel API is running", "docs": "/docs", "health": "/health"}
 
 @app.post("/categorize", response_model=CategorizedResponse)
 def categorize_transactions(request: TransactionsRequest):
+    """Categorize a list of bank transactions by description."""
     if not request.transactions:
         raise HTTPException(status_code=400, detail="No transactions provided.")
 
@@ -344,6 +659,7 @@ def categorize_transactions(request: TransactionsRequest):
 
 @app.post("/hotels/search", response_model=HotelSearchResponse)
 def search_hotels(req: HotelSearchRequest):
+    """Search for hotels based on user criteria."""
     try:
         hotel_data = [HotelData(
             checkin_date=req.checkin_date,
@@ -380,6 +696,7 @@ def search_hotels(req: HotelSearchRequest):
 
 @app.post("/flights/search", response_model=FlightSearchResponse)
 def search_flights(req: FlightSearchRequest):
+    """Search for flights based on user criteria, resolving city/country names to IATA codes."""
     try:
         # --- IATA resolution for from_airport and to_airport ---
         from_iata = resolve_to_iata(req.from_airport)
@@ -527,10 +844,9 @@ def search_flights(req: FlightSearchRequest):
         logging.error(f"Flight search error: {e}")
         raise HTTPException(status_code=400, detail=str(e))
 
-AIRPORTS_CSV_URL = "https://raw.githubusercontent.com/lxndrblz/Airports/refs/heads/main/airports.csv"
-
 @lru_cache(maxsize=1)
 def get_airports():
+    """Fetch and cache the list of airports from a remote CSV file."""
     resp = requests.get(AIRPORTS_CSV_URL)
     resp.raise_for_status()
     f = io.StringIO(resp.text)
@@ -539,6 +855,7 @@ def get_airports():
     return airports
 
 def haversine(lat1, lon1, lat2, lon2):
+    """Calculate the great-circle distance between two points on the Earth (in km)."""
     R = 6371
     dLat = math.radians(lat2 - lat1)
     dLon = math.radians(lon2 - lon1)
@@ -547,6 +864,7 @@ def haversine(lat1, lon1, lat2, lon2):
     return R * c
 
 def geocode_city(city_name):
+    """Geocode a city name to latitude and longitude using Overpass API."""
     url = "https://overpass-api.de/api/interpreter"
     # Try city, then town, then village
     place_types = ["city", "town", "village"]
@@ -568,9 +886,15 @@ def geocode_city(city_name):
     return None
 
 def resolve_to_iata(location):
+    """Resolve a city, country, or IATA code to a valid IATA airport code."""
     # If already IATA code, return as is
     if isinstance(location, str) and len(location) == 3 and location.isalpha():
         return location.upper()
+    # Check hardcoded city/country mapping
+    if isinstance(location, str):
+        city_key = location.strip().lower()
+        if city_key in CITY_TO_IATA:
+            return CITY_TO_IATA[city_key]
     # Otherwise, treat as city name
     coords = geocode_city(location)
     if not coords:
@@ -580,6 +904,7 @@ def resolve_to_iata(location):
     min_dist = float("inf")
     nearest = None
     preferred = []
+    # Prefer airports with 'International' in the name and within 50km
     for airport in airports:
         iata = airport.get("code")
         try:
@@ -590,8 +915,17 @@ def resolve_to_iata(location):
         if not iata or airport_lat == 0 or airport_lng == 0:
             continue
         dist = haversine(lat, lng, airport_lat, airport_lng)
-        if ("international" in airport["name"].lower() or "regional" in airport["name"].lower()) and dist < 50:
+        name = airport.get("name", "").lower()
+        city = airport.get("city", "").lower()
+        # Prefer international airports
+        if "international" in name and dist < 50:
             preferred.append((airport, dist))
+        # Next, prefer regional airports
+        elif "regional" in name and dist < 50:
+            preferred.append((airport, dist + 10))  # Slightly deprioritize
+        # Next, prefer city match
+        elif city and city_key in city and dist < 100:
+            preferred.append((airport, dist + 20))
         if dist < min_dist:
             min_dist = dist
             nearest = airport
@@ -602,6 +936,7 @@ def resolve_to_iata(location):
 
 @app.post("/trip/plan", response_model=TripPlanResponse)
 async def plan_trip(req: TripPlanRequest):
+    """Plan a trip by finding best flights and hotels, given origin, destination, and preferences."""
     try:
         # --- IATA resolution for origin and destination ---
         origin_iata = resolve_to_iata(req.origin)
@@ -796,6 +1131,7 @@ async def plan_trip(req: TripPlanRequest):
 
 @app.post("/airbnbs/search", response_model=AirbnbSearchResponse)
 def search_airbnbs(req: AirbnbSearchRequest):
+    """Search for Airbnbs in a given area and date range."""
     try:
         results = pyairbnb.search_all(
             check_in=req.check_in,
@@ -878,6 +1214,7 @@ def search_airbnbs(req: AirbnbSearchRequest):
 
 @app.post("/airbnbs/details", response_model=AirbnbDetailsResponse)
 def airbnb_details(req: AirbnbDetailsRequest):
+    """Fetch detailed information for a specific Airbnb listing."""
     try:
         details = pyairbnb.get_details(
             room_id=req.room_id,
@@ -998,6 +1335,7 @@ def get_itinerary(
     query: str = "",
     open_now: str = "false"
 ):
+    """Get grouped itinerary suggestions (places, events) for a location and date range."""
     if not lat or not lng:
         raise HTTPException(status_code=400, detail="Missing 'lat' or 'lng'")
     if not start_date or not end_date:
