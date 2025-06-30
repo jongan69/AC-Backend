@@ -564,16 +564,19 @@ def search_flights(req: FlightSearchRequest):
 async def plan_trip(req: TripPlanRequest):
     """Plan a trip by finding best flights and hotels, given origin, destination, and preferences."""
     try:
+        timing = {}
+        start = time.time()
         # --- IATA resolution for origin and destination ---
         origin_iata = resolve_to_iata(req.origin)
+        timing['iata_origin'] = time.time() - start
         destination_iata = resolve_to_iata(req.destination)
+        timing['iata_destination'] = time.time() - start
+        print(f"[TIMING] IATA resolution: origin={timing['iata_origin']:.2f}s, destination={timing['iata_destination'] - timing['iata_origin']:.2f}s")
         if not origin_iata or not destination_iata:
             raise HTTPException(status_code=400, detail="Could not resolve origin or destination to an airport IATA code.")
-        # ... rest of the function uses origin_iata and destination_iata ...
         async def _plan_trip_inner():
             logging.info(f"Trip planning started: {req}")
-            start_time = time.time()
-
+            start_inner = time.time()
             passengers = Passengers(
                 adults=req.adults,
                 children=req.children,
@@ -585,7 +588,6 @@ async def plan_trip(req: TripPlanRequest):
                 from_airport=origin_iata,
                 to_airport=destination_iata
             )]
-            # Generate outbound flight URL
             outbound_filter = create_filter(
                 flight_data=outbound_flight_data,
                 trip="one-way",
@@ -594,7 +596,6 @@ async def plan_trip(req: TripPlanRequest):
             )
             outbound_b64 = outbound_filter.as_b64().decode('utf-8')
             outbound_flight_url = f"https://www.google.com/travel/flights?tfs={outbound_b64}"
-
             hotel_data = [HotelData(
                 checkin_date=req.depart_date,
                 checkout_date=req.return_date if getattr(req, 'return_date', None) else req.depart_date,
@@ -606,14 +607,12 @@ async def plan_trip(req: TripPlanRequest):
             return_flight_data = None
             return_flight_url = None
             warning_msgs = []
-            # Only run outbound and round-trip return flight for optimization
             if getattr(req, 'return_date', None):
                 return_flight_data = [FlightData(
                     date=req.return_date,
                     from_airport=destination_iata,
                     to_airport=origin_iata
                 )]
-                # Generate return flight URL
                 return_filter = create_filter(
                     flight_data=return_flight_data,
                     trip="round-trip",
@@ -625,8 +624,8 @@ async def plan_trip(req: TripPlanRequest):
                 trip_types = ["round-trip"]
             else:
                 trip_types = []
-
-            logging.info("Starting outbound flight and hotel search tasks")
+            print(f"[TIMING] Before outbound flight and hotel search: {time.time() - start_inner:.2f}s")
+            t1 = time.time()
             tasks = [
                 run_blocking_with_log("outbound_flight", partial(call_with_timeout, get_flights, 60, flight_data=outbound_flight_data, trip="one-way", seat="economy", passengers=passengers, fetch_mode="local")),
                 run_blocking_with_log("hotel", partial(call_with_timeout, get_hotels, 60, hotel_data=hotel_data, guests=guests, room_type=req.room_type, amenities=req.amenities, fetch_mode="fallback", limit=10, sort_by="price"))
@@ -634,22 +633,20 @@ async def plan_trip(req: TripPlanRequest):
             if return_flight_data:
                 for trip_type in trip_types:
                     label = f"return_flight_{trip_type}"
-                    logging.info(f"Starting return flight search for trip_type={trip_type}")
+                    print(f"[TIMING] Before return flight search: {time.time() - start_inner:.2f}s")
                     tasks.append(run_blocking_with_log(label, partial(call_with_timeout, get_flights, 60, flight_data=return_flight_data, trip=trip_type, seat="economy", passengers=passengers, fetch_mode="local")))
-
             results = await asyncio.gather(*tasks, return_exceptions=True)
-            logging.info(f"Tasks completed in {time.time() - start_time:.2f}s")
-
+            t2 = time.time()
+            print(f"[TIMING] Outbound flight + hotel + return (if any): {t2 - t1:.2f}s")
+            logging.info(f"Tasks completed in {t2 - start_inner:.2f}s")
             outbound_result = results[0]
             hotel_result = results[1]
             return_result = results[2] if return_flight_data else None
-
-            if isinstance(outbound_result, Exception):
-                logging.error(f"Outbound flight search error: {outbound_result}")
-                warning_msgs.append(f"Outbound flight search failed: {outbound_result}")
-            if isinstance(hotel_result, Exception):
-                logging.error(f"Hotel search error: {hotel_result}")
-                warning_msgs.append(f"Hotel search failed: {hotel_result}")
+            # Print timing for each result
+            print(f"[TIMING] Outbound flight search: {getattr(outbound_result, 'timing', 'N/A')}")
+            print(f"[TIMING] Hotel search: {getattr(hotel_result, 'timing', 'N/A')}")
+            if return_flight_data:
+                print(f"[TIMING] Return flight search: {getattr(return_result, 'timing', 'N/A')}")
             best_return_flight = None
             if return_flight_data:
                 if isinstance(return_result, Exception):
@@ -733,7 +730,8 @@ async def plan_trip(req: TripPlanRequest):
             if req.max_total_budget and total_estimated_cost > req.max_total_budget:
                 suggestions = "Consider adjusting your dates, reducing hotel star rating, or increasing your budget."
 
-            logging.info(f"Trip planning completed successfully in {time.time() - start_time:.2f}s")
+            logging.info(f"Trip planning completed successfully in {time.time() - start_inner:.2f}s")
+            print(f"[TIMING] Total /trip/plan time: {time.time() - start:.2f}s")
             return TripPlanResponse(
                 best_outbound_flight=best_outbound_flight,
                 best_return_flight=best_return_flight,
