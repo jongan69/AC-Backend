@@ -1002,9 +1002,10 @@ def get_itinerary(
         except Exception:
             raise HTTPException(status_code=400, detail="start_date and end_date must be in YYYY-MM-DD format")
         # --- Foursquare Places ---
+        radius_meters = int(float(radius) * 1000) if float(radius) < 1000 else int(float(radius))
         params = {
             "ll": f"{lat},{lng}",
-            "radius": str(radius),
+            "radius": str(radius_meters),
             "limit": str(limit),
             "sort": "relevance"
         }
