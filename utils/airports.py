@@ -369,26 +369,32 @@ def lookup_iata(location, country_hint=None, fuzzy=True, prefer_international=Tr
     2. Then try OpenFlights global mapping for full coverage, with fuzzy matching and prioritizing international airports.
     Returns a list of IATA codes or a single code, or None if not found.
     """
+    print(f"[lookup_iata] location={location!r}, country_hint={country_hint!r}, fuzzy={fuzzy}, prefer_international={prefer_international}")
+    print(f"[lookup_iata] CITY_TO_IATA: {CITY_TO_IATA}")
     if not location:
+        print("[lookup_iata] No location provided.")
         return None
     key = location.strip().lower()
     # 1. Try static mapping (with country disambiguation if provided)
     if country_hint:
         key_with_country = f"{key}, {country_hint.strip().lower()}"
         if key_with_country in CITY_TO_IATA:
+            print(f"[lookup_iata] Found in static mapping with country: {CITY_TO_IATA[key_with_country]}")
             return CITY_TO_IATA[key_with_country]
     if key in CITY_TO_IATA:
+        print(f"[lookup_iata] Found in static mapping: {CITY_TO_IATA[key]}")
         return CITY_TO_IATA[key]
     if country_hint and country_hint.strip().lower() in CITY_TO_IATA:
+        print(f"[lookup_iata] Found country fallback in static mapping: {CITY_TO_IATA[country_hint.strip().lower()]}")
         return CITY_TO_IATA[country_hint.strip().lower()]
     # 2. Try dynamic OpenFlights mapping
     global_map = get_global_city_to_iata()
-    # Fuzzy match city if enabled
     city = key
     country = country_hint.strip().lower() if country_hint else None
     all_cities = set(c for (c, _) in global_map.keys())
     if fuzzy and city not in all_cities:
         fuzzy_city = fuzzy_city_match(city, all_cities)
+        print(f"[lookup_iata] Fuzzy match for '{city}': {fuzzy_city}")
         if fuzzy_city:
             city = fuzzy_city
     # Try city+country
@@ -397,8 +403,8 @@ def lookup_iata(location, country_hint=None, fuzzy=True, prefer_international=Tr
         if gkey in global_map:
             codes = global_map[gkey]
             if prefer_international:
-                # Prioritize airports with 'International' in their name
                 codes = prioritize_international(codes, city, country)
+            print(f"[lookup_iata] Found in OpenFlights city+country: {codes}")
             return codes
     # fallback: try all cities matching the name (may be ambiguous)
     matches = [codes for (c, _), codes in global_map.items() if c == city]
@@ -406,7 +412,9 @@ def lookup_iata(location, country_hint=None, fuzzy=True, prefer_international=Tr
         codes = [iata for sublist in matches for iata in sublist]
         if prefer_international:
             codes = prioritize_international(codes, city, country)
+        print(f"[lookup_iata] Found in OpenFlights city-only: {codes}")
         return codes if codes else None
+    print(f"[lookup_iata] No match found for location={location!r}, country_hint={country_hint!r}")
     return None
 
 def prioritize_international(iata_codes, city, country):
@@ -480,19 +488,19 @@ def get_airports():
     return airports
 
 def resolve_to_iata(location, country_hint=None):
-    """
-    Unified IATA resolution: tries static, dynamic, fuzzy, and geocode+nearest fallback.
-    Returns a single IATA code (prioritizing international airports), or None.
-    """
-    # 1. Try lookup_iata (static, dynamic, fuzzy, prioritizing international)
+    print(f"[resolve_to_iata] Resolving: location={location!r}, country_hint={country_hint!r}")
     codes = lookup_iata(location, country_hint=country_hint, fuzzy=True, prefer_international=True)
+    print(f"[resolve_to_iata] lookup_iata result: {codes}")
     if codes:
         if isinstance(codes, list):
+            print(f"[resolve_to_iata] Returning first code: {codes[0]}")
             return codes[0]
+        print(f"[resolve_to_iata] Returning code: {codes}")
         return codes
-    # 2. Fallback: geocode and find nearest airport
     coords = geocode_city(location)
+    print(f"[resolve_to_iata] geocode_city result: {coords}")
     if not coords:
+        print(f"[resolve_to_iata] Could not geocode location: {location!r}")
         return None
     lat, lng = coords
     airports = get_airports()
@@ -523,4 +531,5 @@ def resolve_to_iata(location, country_hint=None):
     if preferred:
         preferred.sort(key=lambda x: x[1])
         nearest = preferred[0][0]
+    print(f"[resolve_to_iata] Nearest airport: {nearest['iata'] if nearest else None}")
     return nearest["iata"] if nearest else None 
