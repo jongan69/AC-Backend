@@ -503,10 +503,13 @@ def resolve_to_iata(location, country_hint=None):
     print(f"[resolve_to_iata] lookup_iata result: {codes}")
     if codes:
         if isinstance(codes, list):
-            print(f"[resolve_to_iata] Returning first code: {codes[0]}")
+            print(f"[resolve_to_iata] Multiple IATA codes found for {location!r}: {codes}. Returning first: {codes[0]}")
             return codes[0]
         print(f"[resolve_to_iata] Returning code: {codes}")
         return codes
+    print(f"[resolve_to_iata] No IATA code found for {location!r}")
+    return None
+
     coords = geocode_city(location)
     print(f"[resolve_to_iata] geocode_city result: {coords}")
     if not coords:

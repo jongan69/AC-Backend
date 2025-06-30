@@ -1,5 +1,3 @@
-import utils.nltk_bootstrap # noqa
-
 ###############################
 # Standard Library Imports    #
 ###############################
@@ -86,22 +84,24 @@ logging.basicConfig(level=logging.INFO)
 # Helper Functions            #
 ###############################
 
+# --- Move this function to the top level for multiprocessing pickling ---
+def call_with_timeout_target(q, func, *args, **kwargs):
+    import logging
+    try:
+        logging.info(f"{func.__name__} started with args={args}, kwargs={kwargs}")
+        result = func(*args, **kwargs)
+        q.put(result)
+        logging.info(f"{func.__name__} finished successfully")
+    except Exception as e:
+        logging.error(f"{func.__name__} failed: {e}")
+        q.put(e)
+
 # Helper to log before/after each blocking task and enforce a hard timeout
 
 def call_with_timeout(func, timeout, *args, **kwargs):
     """Run a function in a separate process with a timeout. Raise TimeoutError if exceeded."""
-    def target(q, *args, **kwargs):
-        import logging
-        try:
-            logging.info(f"{func.__name__} started with args={args}, kwargs={kwargs}")
-            result = func(*args, **kwargs)
-            q.put(result)
-            logging.info(f"{func.__name__} finished successfully")
-        except Exception as e:
-            logging.error(f"{func.__name__} failed: {e}")
-            q.put(e)
     q = Queue()
-    p = Process(target=target, args=(q,)+args, kwargs=kwargs)
+    p = Process(target=call_with_timeout_target, args=(q, func) + args, kwargs=kwargs)
     p.start()
     p.join(timeout)
     if p.is_alive():
@@ -194,7 +194,7 @@ class FlightSearchRequest(BaseModel):
     children: int = Field(0, ge=0, description="Number of child passengers", examples=[1])
     infants_in_seat: int = Field(0, ge=0, description="Number of infants in seat", examples=[0])
     infants_on_lap: int = Field(0, ge=0, description="Number of infants on lap", examples=[0])
-    fetch_mode: str = Field("fallback", description="Fetch mode: 'fallback', etc.", examples=["fallback"])
+    fetch_mode: str = Field("local", description="Fetch mode: 'fallback', etc.", examples=["fallback"])
     return_date: Optional[str] = Field(None, description="Return date in YYYY-MM-DD format (required for round-trip)", examples=["2025-01-10"])
 
     @field_validator('return_date')
@@ -435,13 +435,13 @@ def search_flights(req: FlightSearchRequest):
                 flight_data=[
                     FlightData(
                         date=req.date,
-                        from_airport=req.from_airport,
-                        to_airport=req.to_airport
+                        from_airport=from_iata,
+                        to_airport=to_iata
                     ),
                     FlightData(
                         date=req.return_date,
-                        from_airport=req.to_airport,
-                        to_airport=req.from_airport
+                        from_airport=to_iata,
+                        to_airport=from_iata
                     )
                 ],
                 trip="round-trip",
@@ -454,16 +454,21 @@ def search_flights(req: FlightSearchRequest):
             # Outbound leg
             outbound_data = [FlightData(
                 date=req.date,
-                from_airport=req.from_airport,
-                to_airport=req.to_airport
+                from_airport=from_iata,
+                to_airport=to_iata
             )]
-            outbound_result = get_flights(
-                flight_data=outbound_data,
-                trip="one-way",
-                seat=req.seat,
-                passengers=passengers,
-                fetch_mode=req.fetch_mode
-            )
+            try:
+                outbound_result = get_flights(
+                    flight_data=outbound_data,
+                    trip="one-way",
+                    seat=req.seat,
+                    passengers=passengers,
+                    fetch_mode=req.fetch_mode
+                )
+            except Exception as e:
+                if 'Skip to main content' in str(e):
+                    raise HTTPException(status_code=404, detail="No flights found for the given route and dates. Please try different dates or airports.")
+                raise
             outbound_flights = [FlightInfo(
                 name=f.name,
                 departure=f.departure,
@@ -481,16 +486,21 @@ def search_flights(req: FlightSearchRequest):
             # Return leg
             return_data = [FlightData(
                 date=req.return_date,
-                from_airport=req.to_airport,
-                to_airport=req.from_airport
+                from_airport=to_iata,
+                to_airport=from_iata
             )]
-            return_result = get_flights(
-                flight_data=return_data,
-                trip="one-way",
-                seat=req.seat,
-                passengers=passengers,
-                fetch_mode=req.fetch_mode
-            )
+            try:
+                return_result = get_flights(
+                    flight_data=return_data,
+                    trip="one-way",
+                    seat=req.seat,
+                    passengers=passengers,
+                    fetch_mode=req.fetch_mode
+                )
+            except Exception as e:
+                if 'Skip to main content' in str(e):
+                    raise HTTPException(status_code=404, detail="No flights found for the given route and dates. Please try different dates or airports.")
+                raise
             return_flights = [FlightInfo(
                 name=f.name,
                 departure=f.departure,
@@ -513,6 +523,9 @@ def search_flights(req: FlightSearchRequest):
                 except Exception:
                     pass
 
+            if not outbound_flights and not return_flights:
+                raise HTTPException(status_code=404, detail="No flights found for the given route and dates. Please try different dates or airports.")
+
             return FlightSearchResponse(
                 outbound_flights=outbound_flights,
                 return_flights=return_flights,
@@ -521,8 +534,8 @@ def search_flights(req: FlightSearchRequest):
         else:
             flight_data = [FlightData(
                 date=req.date,
-                from_airport=req.from_airport,
-                to_airport=req.to_airport
+                from_airport=from_iata,
+                to_airport=to_iata
             )]
             # Generate filter and URL
             filter = create_filter(
@@ -533,14 +546,18 @@ def search_flights(req: FlightSearchRequest):
             )
             b64 = filter.as_b64().decode('utf-8')
             flight_url = f"https://www.google.com/travel/flights?tfs={b64}"
-
-            result = get_flights(
-                flight_data=flight_data,
-                trip=req.trip,
-                seat=req.seat,
-                passengers=passengers,
-                fetch_mode=req.fetch_mode
-            )
+            try:
+                result = get_flights(
+                    flight_data=flight_data,
+                    trip=req.trip,
+                    seat=req.seat,
+                    passengers=passengers,
+                    fetch_mode=req.fetch_mode
+                )
+            except Exception as e:
+                if 'Skip to main content' in str(e):
+                    raise HTTPException(status_code=404, detail="No flights found for the given route and dates. Please try different dates or airports.")
+                raise
             flights = [FlightInfo(
                 name=f.name,
                 departure=f.departure,
@@ -554,12 +571,23 @@ def search_flights(req: FlightSearchRequest):
                 url=flight_url
             ) for f in result.flights]
             flights = [f for f in flights if f.name and f.departure and f.arrival and (f.price is not None and f.price > 0)]
+            if not flights:
+                raise HTTPException(status_code=404, detail="No flights found for the given route and dates. Please try different dates or airports.")
             return FlightSearchResponse(
                 flights=flights,
                 current_price=getattr(result, 'current_price', None)
             )
     except Exception as e:
-        logging.error(f"Flight search error: {e}")
+        # If the error message contains a huge HTML blob, clean it up
+        if isinstance(e, HTTPException):
+            if hasattr(e, 'detail') and isinstance(e.detail, str) and 'Skip to main content' in e.detail:
+                raise HTTPException(
+                    status_code=404,
+                    detail="No flights found for the given route and dates. Please try different dates or airports."
+                )
+            raise e
+        if 'Skip to main content' in str(e):
+            raise HTTPException(status_code=404, detail="No flights found for the given route and dates. Please try different dates or airports.")
         raise HTTPException(status_code=400, detail=str(e))
 
 @app.post("/trip/plan", response_model=TripPlanResponse)
