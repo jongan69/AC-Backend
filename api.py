@@ -3,15 +3,12 @@
 ###############################
 import os
 import re
-import io
-import csv
-import math
 import json
 import time
 import logging
 import asyncio
 from datetime import datetime
-from functools import partial, lru_cache
+from functools import partial
 from concurrent.futures import ThreadPoolExecutor
 from multiprocessing import Process, Queue
 
@@ -25,18 +22,16 @@ from pydantic import BaseModel, Field, field_validator
 from typing import List, Optional, Dict, Any
 from dotenv import load_dotenv
 from predicthq import Client
-import nltk
 
 ###############################
 # Local Application Imports   #
 ###############################
-import utils.nltk_bootstrap # noqa
 from utils.api_predict import BankTransactionCategorizer
 from fast_hotels.hotels_impl import HotelData, Guests
 from fast_hotels import get_hotels
 from fast_flights import FlightData, Passengers, get_flights, create_filter
 import pyairbnb
-from utils.airports import CITY_TO_IATA
+from utils.airports import resolve_to_iata
 
 load_dotenv()
 
@@ -46,8 +41,6 @@ phq = Client(access_token=os.environ.get("PREDICTHQ_ACCESS_TOKEN"))
 ###############################
 # Constants & Configuration   #
 ###############################
-
-AIRPORTS_CSV_URL = "https://raw.githubusercontent.com/lxndrblz/Airports/refs/heads/main/airports.csv"
 
 # Helper functions for parsing price and stops and run blocking operations
 def _parse_price(price):
@@ -566,96 +559,6 @@ def search_flights(req: FlightSearchRequest):
     except Exception as e:
         logging.error(f"Flight search error: {e}")
         raise HTTPException(status_code=400, detail=str(e))
-
-@lru_cache(maxsize=1)
-def get_airports():
-    """Fetch and cache the list of airports from a remote CSV file."""
-    resp = requests.get(AIRPORTS_CSV_URL)
-    resp.raise_for_status()
-    f = io.StringIO(resp.text)
-    reader = csv.DictReader(f)
-    airports = [row for row in reader]
-    return airports
-
-def haversine(lat1, lon1, lat2, lon2):
-    """Calculate the great-circle distance between two points on the Earth (in km)."""
-    R = 6371
-    dLat = math.radians(lat2 - lat1)
-    dLon = math.radians(lon2 - lon1)
-    a = math.sin(dLat/2)**2 + math.cos(math.radians(lat1)) * math.cos(math.radians(lat2)) * math.sin(dLon/2)**2
-    c = 2 * math.atan2(math.sqrt(a), math.sqrt(1-a))
-    return R * c
-
-def geocode_city(city_name):
-    """Geocode a city name to latitude and longitude using Overpass API."""
-    url = "https://overpass-api.de/api/interpreter"
-    # Try city, then town, then village
-    place_types = ["city", "town", "village"]
-    headers = {"User-Agent": "trip-planner"}
-    for place in place_types:
-        query = f'''
-        [out:json][timeout:25];
-        node["name"="{city_name}"]["place"="{place}"];
-        out center 1;
-        '''
-        resp = requests.post(url, data={"data": query}, headers=headers)
-        resp.raise_for_status()
-        data = resp.json()
-        elements = data.get("elements", [])
-        if elements:
-            lat = elements[0]["lat"]
-            lon = elements[0]["lon"]
-            return float(lat), float(lon)
-    return None
-
-def resolve_to_iata(location):
-    """Resolve a city, country, or IATA code to a valid IATA airport code."""
-    # If already IATA code, return as is
-    if isinstance(location, str) and len(location) == 3 and location.isalpha():
-        return location.upper()
-    # Check hardcoded city/country mapping
-    if isinstance(location, str):
-        city_key = location.strip().lower()
-        if city_key in CITY_TO_IATA:
-            return CITY_TO_IATA[city_key]
-    # Otherwise, treat as city name
-    coords = geocode_city(location)
-    if not coords:
-        return None
-    lat, lng = coords
-    airports = get_airports()
-    min_dist = float("inf")
-    nearest = None
-    preferred = []
-    # Prefer airports with 'International' in the name and within 50km
-    for airport in airports:
-        iata = airport.get("code")
-        try:
-            airport_lat = float(airport["latitude"])
-            airport_lng = float(airport["longitude"])
-        except Exception:
-            continue
-        if not iata or airport_lat == 0 or airport_lng == 0:
-            continue
-        dist = haversine(lat, lng, airport_lat, airport_lng)
-        name = airport.get("name", "").lower()
-        city = airport.get("city", "").lower()
-        # Prefer international airports
-        if "international" in name and dist < 50:
-            preferred.append((airport, dist))
-        # Next, prefer regional airports
-        elif "regional" in name and dist < 50:
-            preferred.append((airport, dist + 10))  # Slightly deprioritize
-        # Next, prefer city match
-        elif city and city_key in city and dist < 100:
-            preferred.append((airport, dist + 20))
-        if dist < min_dist:
-            min_dist = dist
-            nearest = airport
-    if preferred:
-        preferred.sort(key=lambda x: x[1])
-        nearest = preferred[0][0]
-    return nearest["code"] if nearest else None
 
 @app.post("/trip/plan", response_model=TripPlanResponse)
 async def plan_trip(req: TripPlanRequest):
