@@ -489,6 +489,16 @@ def get_airports():
 
 def resolve_to_iata(location, country_hint=None):
     print(f"[resolve_to_iata] Resolving: location={location!r}, country_hint={country_hint!r}")
+    # If already a 3-letter IATA code, validate it exists in OpenFlights
+    if isinstance(location, str) and len(location) == 3 and location.isalpha():
+        iata = location.upper()
+        global_map = get_global_city_to_iata()
+        all_iatas = {iata for codes in global_map.values() for iata in codes}
+        if iata in all_iatas:
+            print(f"[resolve_to_iata] Input is valid IATA code: {iata}")
+            return iata
+        else:
+            print(f"[resolve_to_iata] Input looks like IATA but not found: {iata}")
     codes = lookup_iata(location, country_hint=country_hint, fuzzy=True, prefer_international=True)
     print(f"[resolve_to_iata] lookup_iata result: {codes}")
     if codes:
