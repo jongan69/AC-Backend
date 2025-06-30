@@ -5,19 +5,24 @@ import torch
 import numpy as np
 import tensorflow as tf
 from transformers import DistilBertTokenizer
-from nltk.corpus import stopwords
 from sklearn.preprocessing import LabelEncoder
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import LabelEncoder, OneHotEncoder
 import nltk
 from .dicts import categories  # <-- Use shared categories dict
 
-# Ensure stopwords are downloaded
-try:
-    stop_words = set(stopwords.words('english'))
-except LookupError:
-    nltk.download('stopwords')
-    stop_words = set(stopwords.words('english'))
+def get_stop_words():
+    from nltk.corpus import stopwords
+    try:
+        return get_stop_words._cache
+    except AttributeError:
+        try:
+            stop_words = set(stopwords.words('english'))
+        except LookupError:
+            nltk.download('stopwords')
+            stop_words = set(stopwords.words('english'))
+        get_stop_words._cache = stop_words
+        return stop_words
 
 pd.set_option('display.max_rows', None)
 pd.set_option('display.max_columns', 50)
@@ -151,7 +156,7 @@ class DataPreprocessor:
         #Remove any single letter words from Description column
         self.df['Description'] = self.df['Description'].apply(lambda x: re.sub(r'\b[a-zA-Z]\b', '', x))
         #Remove stop words from Description column using NLTK
-        self.df['Description'] = self.df['Description'].apply(lambda x: ' '.join([word for word in x.split() if word not in stop_words]))
+        self.df['Description'] = self.df['Description'].apply(lambda x: ' '.join([word for word in x.split() if word not in get_stop_words()]))
         #self.df.dropna(subset=['Category', 'Sub_Category'], inplace=True)
         return self.df
 
@@ -176,7 +181,7 @@ class DataPreprocessor:
         #Remove any single letter words from Description column
         self.df['Description'] = self.df['Description'].apply(lambda x: re.sub(r'\b[a-zA-Z]\b', '', x))
         #Remove stop words from Description column using NLTK
-        self.df['Description'] = self.df['Description'].apply(lambda x: ' '.join([word for word in x.split() if word not in stop_words]))
+        self.df['Description'] = self.df['Description'].apply(lambda x: ' '.join([word for word in x.split() if word not in get_stop_words()]))
         self.df.dropna(subset=['Category', 'Sub_Category'], inplace=True)
         return self.df
     

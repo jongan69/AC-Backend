@@ -2,39 +2,147 @@
 
 [![Refresh Webhook](https://github.com/jongan69/AC-Backend/actions/workflows/refresh-webhook.yml/badge.svg)](https://github.com/jongan69/AC-Backend/actions/workflows/refresh-webhook.yml)
 
-![Project Structure](images/structure.png)
+## Architecture Overview
 
-[Cloudflare Tunneled Docs](https://pi4.adventurecapitalbackend.com/docs)
+```mermaid
+flowchart TD
+    A[Client] -->|/categorize| B[Transaction Categorization]
+    A -->|/hotels/search| C[Hotel Search]
+    A -->|/flights/search| D[Flight Search]
+    A -->|/trip/plan| E[Trip Planning]
+    A -->|/airbnbs/search| F[Airbnb Search]
+    A -->|/airbnbs/details| G[Airbnb Details]
+    A -->|/itinerary| H[Itinerary Suggestions]
+    B -->|uses| B1[BankTransactionCategorizer]
+    C -->|uses| C1[get_hotels]
+    D -->|uses| D1[get_flights]
+    E -->|uses| D1
+    E -->|uses| C1
+    F -->|uses| F1[pyairbnb.search_all]
+    G -->|uses| G1[pyairbnb.get_details]
+    H -->|uses| H1[Foursquare API]
+    H -->|uses| H2[PredictHQ Events]
+```
 
-## Overview
-AC-Backend is a FastAPI-based backend for travel planning, providing endpoints for searching hotels, flights, Airbnbs, categorizing transactions, and planning trips with cost breakdowns.
+## Endpoint-Feature Mapping
+
+```mermaid
+flowchart TD
+    subgraph API Endpoints
+        A1[/categorize\nPOST/] 
+        A2[/hotels/search\nPOST/]
+        A3[/flights/search\nPOST/]
+        A4[/trip/plan\nPOST/]
+        A5[/airbnbs/search\nPOST/]
+        A6[/airbnbs/details\nPOST/]
+        A7[/itinerary\nGET/]
+        A8[/health\nGET/]
+        A9[/\nGET/]
+    end
+    subgraph Features
+        F1[Transaction Categorization]
+        F2[Hotel Search]
+        F3[Flight Search]
+        F4[Trip Planning]
+        F5[Airbnb Search]
+        F6[Airbnb Details]
+        F7[Itinerary Suggestions]
+        F8[Health Check]
+        F9[Root Welcome]
+    end
+    A1 --> F1
+    A2 --> F2
+    A3 --> F3
+    A4 --> F4
+    A5 --> F5
+    A6 --> F6
+    A7 --> F7
+    A8 --> F8
+    A9 --> F9
+```
+
+## API Sequence Example
+
+```mermaid
+sequenceDiagram
+    participant Client
+    participant API as AC-Backend API
+    participant Hotels as Hotel Service
+    participant Flights as Flight Service
+    participant Airbnb as Airbnb Service
+    participant Foursquare as Foursquare API
+    participant PredictHQ as PredictHQ
+
+    Client->>API: POST /categorize
+    API->>API: Categorize transactions
+    API-->>Client: Categorized results
+
+    Client->>API: POST /hotels/search
+    API->>Hotels: get_hotels
+    Hotels-->>API: Hotel results
+    API-->>Client: Hotel search results
+
+    Client->>API: POST /flights/search
+    API->>Flights: get_flights
+    Flights-->>API: Flight results
+    API-->>Client: Flight search results
+
+    Client->>API: POST /trip/plan
+    API->>Flights: get_flights (outbound/return)
+    API->>Hotels: get_hotels
+    Flights-->>API: Flight options
+    Hotels-->>API: Hotel options
+    API-->>Client: Best trip plan
+
+    Client->>API: POST /airbnbs/search
+    API->>Airbnb: pyairbnb.search_all
+    Airbnb-->>API: Airbnb results
+    API-->>Client: Airbnb search results
+
+    Client->>API: POST /airbnbs/details
+    API->>Airbnb: pyairbnb.get_details
+    Airbnb-->>API: Airbnb details
+    API-->>Client: Airbnb details
+
+    Client->>API: GET /itinerary
+    API->>Foursquare: Places API
+    API->>PredictHQ: Events API
+    Foursquare-->>API: Places
+    PredictHQ-->>API: Events
+    API-->>Client: Grouped itinerary
+```
 
 ---
 
 ## API Endpoints
 
-### Health & Root
-
-#### `GET /health`
-- **Description:** Health check endpoint.
-- **Response:** `{ "status": "healthy", "timestamp": <ISO8601> }`
+### Root & Health
 
 #### `GET /`
-- **Description:** Root endpoint. Returns a welcome message and links to docs and health.
-- **Response:** `{ "message": "Travel API is running", "docs": "/docs", "health": "/health" }`
+- **Description:** Root endpoint. Returns API status and documentation links.
+- **Response:**
+  ```json
+  { "message": "Travel API is running", "docs": "/docs", "health": "/health" }
+  ```
+
+#### `GET /health`
+- **Description:** Health check endpoint. Returns API status and current timestamp.
+- **Response:**
+  ```json
+  { "status": "healthy", "timestamp": "2025-01-01T12:00:00" }
+  ```
 
 ---
 
 ### Transaction Categorization
 
 #### `POST /categorize`
-- **Description:** Categorizes a list of bank transactions.
+- **Description:** Categorizes a list of bank transactions by description.
 - **Request Body:**
   ```json
   {
     "transactions": [
-      { "Description": "string" },
-      ...
+      { "Description": "string" }
     ]
   }
   ```
@@ -49,8 +157,7 @@ AC-Backend is a FastAPI-based backend for travel planning, providing endpoints f
         "Sub_Category": "string",
         "Category_Confidence": 0.95,
         "Sub_Category_Confidence": 0.92
-      },
-      ...
+      }
     ]
   }
   ```
@@ -60,7 +167,7 @@ AC-Backend is a FastAPI-based backend for travel planning, providing endpoints f
 ### Hotel Search
 
 #### `POST /hotels/search`
-- **Description:** Searches for hotels based on provided criteria.
+- **Description:** Searches for hotels based on user criteria.
 - **Request Body:**
   ```json
   {
@@ -87,8 +194,7 @@ AC-Backend is a FastAPI-based backend for travel planning, providing endpoints f
         "rating": 4.5,
         "url": "string",
         "amenities": ["wifi", "breakfast"]
-      },
-      ...
+      }
     ],
     "lowest_price": 100.0,
     "current_price": 120.0
@@ -114,7 +220,7 @@ AC-Backend is a FastAPI-based backend for travel planning, providing endpoints f
     "infants_in_seat": 0,
     "infants_on_lap": 0,
     "fetch_mode": "fallback",
-    "return_date": "YYYY-MM-DD" // required for round-trip
+    "return_date": "YYYY-MM-DD"
   }
   ```
 - **Response (one-way):**
@@ -132,8 +238,7 @@ AC-Backend is a FastAPI-based backend for travel planning, providing endpoints f
         "price": 350.0,
         "is_best": true,
         "url": "string"
-      },
-      ...
+      }
     ],
     "current_price": "350.0"
   }
@@ -236,8 +341,7 @@ AC-Backend is a FastAPI-based backend for travel planning, providing endpoints f
         "badges": ["Superhost"],
         "latitude": 35.0,
         "longitude": 139.0
-      },
-      ...
+      }
     ],
     "lowest_price": 100.0,
     "current_price": 100.0
@@ -277,17 +381,53 @@ AC-Backend is a FastAPI-based backend for travel planning, providing endpoints f
 
 ---
 
+### Itinerary Suggestions
+
+#### `GET /itinerary`
+- **Description:** Returns grouped itinerary suggestions (places, events) for a location and date range.
+- **Query Parameters:**
+  - `lat`, `lng`, `start_date`, `end_date` (required)
+  - `radius`, `limit`, `query`, `open_now` (optional)
+- **Response:**
+  ```json
+  {
+    "itinerary": {
+      "Food": [ ... ],
+      "Attractions": [ ... ],
+      "Events": [ ... ]
+    }
+  }
+  ```
+
+---
+
+## NLTK Data Setup
+
+This project uses NLTK resources (stopwords, wordnet, omw-1.4). Before running the API, ensure these are downloaded:
+
+```bash
+python scripts/download_nltk_data.py
+```
+
+If you encounter errors about missing NLTK data, see the troubleshooting section in the code or run the above script again.
+
+---
+
 ## Running the Server
 
 1. Install dependencies:
    ```bash
    pip install -r requirements.txt
    ```
-2. Start the server:
+2. Download NLTK data:
+   ```bash
+   python scripts/download_nltk_data.py
+   ```
+3. Start the server:
    ```bash
    uvicorn api:app --reload
    ```
-3. Visit [http://localhost:8000/docs](http://localhost:8000/docs) for interactive API docs.
+4. Visit [http://localhost:8000/docs](http://localhost:8000/docs) for interactive API docs.
 
 ---
 

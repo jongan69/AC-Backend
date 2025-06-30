@@ -1,3 +1,5 @@
+import utils.nltk_bootstrap # noqa
+
 ###############################
 # Standard Library Imports    #
 ###############################
