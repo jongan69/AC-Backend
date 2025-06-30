@@ -22,6 +22,10 @@ import requests
 from dotenv import load_dotenv
 from predicthq import Client
 import nltk
+import io
+import math
+from functools import lru_cache
+import csv
 
 load_dotenv()
 
@@ -377,6 +381,11 @@ def search_hotels(req: HotelSearchRequest):
 @app.post("/flights/search", response_model=FlightSearchResponse)
 def search_flights(req: FlightSearchRequest):
     try:
+        # --- IATA resolution for from_airport and to_airport ---
+        from_iata = resolve_to_iata(req.from_airport)
+        to_iata = resolve_to_iata(req.to_airport)
+        if not from_iata or not to_iata:
+            raise HTTPException(status_code=400, detail="Could not resolve from_airport or to_airport to an airport IATA code.")
         passengers = Passengers(
             adults=req.adults,
             children=req.children,
@@ -518,9 +527,88 @@ def search_flights(req: FlightSearchRequest):
         logging.error(f"Flight search error: {e}")
         raise HTTPException(status_code=400, detail=str(e))
 
+AIRPORTS_CSV_URL = "https://raw.githubusercontent.com/lxndrblz/Airports/refs/heads/main/airports.csv"
+
+@lru_cache(maxsize=1)
+def get_airports():
+    resp = requests.get(AIRPORTS_CSV_URL)
+    resp.raise_for_status()
+    f = io.StringIO(resp.text)
+    reader = csv.DictReader(f)
+    airports = [row for row in reader]
+    return airports
+
+def haversine(lat1, lon1, lat2, lon2):
+    R = 6371
+    dLat = math.radians(lat2 - lat1)
+    dLon = math.radians(lon2 - lon1)
+    a = math.sin(dLat/2)**2 + math.cos(math.radians(lat1)) * math.cos(math.radians(lat2)) * math.sin(dLon/2)**2
+    c = 2 * math.atan2(math.sqrt(a), math.sqrt(1-a))
+    return R * c
+
+def geocode_city(city_name):
+    url = "https://overpass-api.de/api/interpreter"
+    # Try city, then town, then village
+    place_types = ["city", "town", "village"]
+    headers = {"User-Agent": "trip-planner"}
+    for place in place_types:
+        query = f'''
+        [out:json][timeout:25];
+        node["name"="{city_name}"]["place"="{place}"];
+        out center 1;
+        '''
+        resp = requests.post(url, data={"data": query}, headers=headers)
+        resp.raise_for_status()
+        data = resp.json()
+        elements = data.get("elements", [])
+        if elements:
+            lat = elements[0]["lat"]
+            lon = elements[0]["lon"]
+            return float(lat), float(lon)
+    return None
+
+def resolve_to_iata(location):
+    # If already IATA code, return as is
+    if isinstance(location, str) and len(location) == 3 and location.isalpha():
+        return location.upper()
+    # Otherwise, treat as city name
+    coords = geocode_city(location)
+    if not coords:
+        return None
+    lat, lng = coords
+    airports = get_airports()
+    min_dist = float("inf")
+    nearest = None
+    preferred = []
+    for airport in airports:
+        iata = airport.get("code")
+        try:
+            airport_lat = float(airport["latitude"])
+            airport_lng = float(airport["longitude"])
+        except Exception:
+            continue
+        if not iata or airport_lat == 0 or airport_lng == 0:
+            continue
+        dist = haversine(lat, lng, airport_lat, airport_lng)
+        if ("international" in airport["name"].lower() or "regional" in airport["name"].lower()) and dist < 50:
+            preferred.append((airport, dist))
+        if dist < min_dist:
+            min_dist = dist
+            nearest = airport
+    if preferred:
+        preferred.sort(key=lambda x: x[1])
+        nearest = preferred[0][0]
+    return nearest["code"] if nearest else None
+
 @app.post("/trip/plan", response_model=TripPlanResponse)
 async def plan_trip(req: TripPlanRequest):
     try:
+        # --- IATA resolution for origin and destination ---
+        origin_iata = resolve_to_iata(req.origin)
+        destination_iata = resolve_to_iata(req.destination)
+        if not origin_iata or not destination_iata:
+            raise HTTPException(status_code=400, detail="Could not resolve origin or destination to an airport IATA code.")
+        # ... rest of the function uses origin_iata and destination_iata ...
         async def _plan_trip_inner():
             logging.info(f"Trip planning started: {req}")
             start_time = time.time()
@@ -533,8 +621,8 @@ async def plan_trip(req: TripPlanRequest):
             )
             outbound_flight_data = [FlightData(
                 date=req.depart_date,
-                from_airport=req.origin,
-                to_airport=req.destination
+                from_airport=origin_iata,
+                to_airport=destination_iata
             )]
             # Generate outbound flight URL
             outbound_filter = create_filter(
@@ -561,8 +649,8 @@ async def plan_trip(req: TripPlanRequest):
             if getattr(req, 'return_date', None):
                 return_flight_data = [FlightData(
                     date=req.return_date,
-                    from_airport=req.destination,
-                    to_airport=req.origin
+                    from_airport=destination_iata,
+                    to_airport=origin_iata
                 )]
                 # Generate return flight URL
                 return_filter = create_filter(
