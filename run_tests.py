@@ -110,6 +110,11 @@ def run_specific_test_categories():
             "markers": "predicthq",
             "verbose": True
         },
+        "functional": {
+            "description": "Simple functional endpoints tests",
+            "markers": "functional",
+            "verbose": True
+        },
         "itinerary": {
             "description": "Itinerary tests",
             "markers": "itinerary",

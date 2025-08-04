@@ -1160,6 +1160,170 @@ def test_nearest_airport_distance_calculation(mock_get_airports):
     assert data["distance_km"] < 1.0
 
 ###############################
+# Simple Functional Endpoints Tests #
+###############################
+
+@pytest.mark.functional
+@pytest.mark.unit
+@patch('api.get_airports')
+def test_resolve_location_success(mock_get_airports):
+    """Test successful location resolution."""
+    # Mock airport data
+    mock_airports = [
+        {
+            'code': 'NRT',
+            'name': 'Narita International Airport',
+            'city': 'Tokyo',
+            'country': 'Japan',
+            'latitude': '35.7720',
+            'longitude': '140.3929'
+        },
+        {
+            'code': 'HND',
+            'name': 'Tokyo Haneda Airport',
+            'city': 'Tokyo',
+            'country': 'Japan',
+            'latitude': '35.5494',
+            'longitude': '139.7798'
+        }
+    ]
+    mock_get_airports.return_value = mock_airports
+    
+    response = client.post("/resolve/location", json={"city": "Tokyo"})
+    assert response.status_code == 200
+    data = response.json()
+    assert data["city"] == "Tokyo"
+    assert data["country"] == "Japan"
+    assert "coordinates" in data
+    assert "airports" in data
+    assert len(data["airports"]) == 2
+
+@pytest.mark.functional
+@pytest.mark.unit
+@patch('api.get_airports')
+def test_resolve_location_not_found(mock_get_airports):
+    """Test location resolution with unknown city."""
+    mock_get_airports.return_value = []
+    
+    response = client.post("/resolve/location", json={"city": "UnknownCity"})
+    assert response.status_code == 404
+    data = response.json()
+    assert "No airports found" in data["detail"]
+
+@pytest.mark.functional
+@pytest.mark.unit
+def test_process_dates_success():
+    """Test successful date processing."""
+    response = client.post("/process/dates", json={
+        "start_date": "2025-06-15",
+        "duration_days": 4
+    })
+    assert response.status_code == 200
+    data = response.json()
+    assert data["start_date"] == "2025-06-15"
+    assert data["end_date"] == "2025-06-18"
+    assert data["duration_days"] == 4
+    assert "weekend_trip" in data
+    assert "days_until_trip" in data
+
+@pytest.mark.functional
+@pytest.mark.unit
+def test_process_dates_invalid_format():
+    """Test date processing with invalid date format."""
+    response = client.post("/process/dates", json={
+        "start_date": "invalid-date",
+        "duration_days": 4
+    })
+    assert response.status_code == 400
+    data = response.json()
+    assert "Invalid date format" in data["detail"]
+
+@pytest.mark.functional
+@pytest.mark.unit
+def test_save_trip_success():
+    """Test successful trip saving."""
+    trip_data = {
+        "destination": "Tokyo",
+        "dates": {"start_date": "2025-06-15", "end_date": "2025-06-18"},
+        "travelers": 2
+    }
+    
+    response = client.post("/trips/save", json={"trip_data": trip_data})
+    assert response.status_code == 200
+    data = response.json()
+    assert "trip_id" in data
+    assert data["status"] == "saved"
+    assert "Trip saved successfully" in data["message"]
+
+@pytest.mark.functional
+@pytest.mark.unit
+def test_get_saved_trips():
+    """Test getting saved trips."""
+    response = client.get("/trips/saved")
+    assert response.status_code == 200
+    data = response.json()
+    assert "trips" in data
+    assert "count" in data
+    assert isinstance(data["trips"], list)
+
+@pytest.mark.functional
+@pytest.mark.unit
+@patch('api.get_airports')
+def test_quick_plan_success(mock_get_airports):
+    """Test successful quick trip planning."""
+    # Mock airport data
+    mock_airports = [
+        {
+            'code': 'NRT',
+            'name': 'Narita International Airport',
+            'city': 'Tokyo',
+            'country': 'Japan',
+            'latitude': '35.7720',
+            'longitude': '140.3929'
+        }
+    ]
+    mock_get_airports.return_value = mock_airports
+    
+    response = client.post("/shortcuts/quick-plan", json={
+        "destination": "Tokyo",
+        "date": "2025-06-15",
+        "adults": 2,
+        "seat_class": "economy"
+    })
+    assert response.status_code == 200
+    data = response.json()
+    assert "Trip to Tokyo for 2 adults" in data["summary"]
+    assert data["status"] == "planned"
+    assert "trip_data" in data
+
+@pytest.mark.functional
+@pytest.mark.unit
+def test_get_weather():
+    """Test weather endpoint."""
+    response = client.get("/weather/Tokyo?date=2025-06-15")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["location"] == "Tokyo"
+    assert data["date"] == "2025-06-15"
+    assert "forecast" in data
+    assert "temperature" in data["forecast"]
+
+@pytest.mark.functional
+@pytest.mark.unit
+@patch('api.get_airports')
+def test_health_extended(mock_get_airports):
+    """Test extended health check."""
+    mock_get_airports.return_value = [{"code": "TEST", "name": "Test Airport"}]
+    
+    response = client.get("/health/extended")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["status"] == "healthy"
+    assert "endpoints" in data
+    assert "data" in data
+    assert data["data"]["airports_count"] == 1
+
+###############################
 # Integration Tests           #
 ###############################
 

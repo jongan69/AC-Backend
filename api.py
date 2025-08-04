@@ -363,6 +363,31 @@ class AirbnbDetailsResponse(BaseModel):
     location: Optional[dict]
     host_name: Optional[str]
     is_superhost: Optional[bool]
+
+# New models for simple endpoints
+class LocationResolveRequest(BaseModel):
+    city: str
+
+class DateProcessRequest(BaseModel):
+    start_date: str
+    duration_days: Optional[int] = None
+
+class TripSaveRequest(BaseModel):
+    trip_data: dict
+
+class QuickPlanRequest(BaseModel):
+    destination: str
+    date: str
+    adults: int
+    seat_class: str = "economy"
+
+class CompleteTripRequest(BaseModel):
+    destination: str
+    date: str
+    adults: int
+    seat_class: str = "economy"
+    duration_days: Optional[int] = None
+    origin_airport: Optional[str] = None
     
 
 # Initialize the categorizer once (loads models)
@@ -1198,3 +1223,215 @@ async def get_nearest_airport(lat: float, lng: float):
         logging.error(f"Airport search error: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to find nearest airport: {str(e)}")
 
+###############################
+# Simple Functional Endpoints #
+###############################
+
+# Global storage for saved trips (replace with database in production)
+saved_trips = {}
+
+@app.post("/resolve/location")
+async def resolve_location(request: LocationResolveRequest):
+    """Convert city names to coordinates and find nearest airports"""
+    try:
+        city_name = request.city.lower()
+        airports = await get_airports()
+        
+        # Find airports in the city
+        city_airports = []
+        city_coords = None
+        
+        for airport in airports:
+            airport_city = airport.get('city', '').lower()
+            airport_name = airport.get('name', '').lower()
+            
+            if city_name in airport_city or city_name in airport_name:
+                try:
+                    lat = float(airport.get('latitude', 0))
+                    lng = float(airport.get('longitude', 0))
+                    
+                    if lat != 0 and lng != 0:
+                        city_airports.append({
+                            "iata": airport.get('code'),
+                            "name": airport.get('name'),
+                            "city": airport.get('city'),
+                            "country": airport.get('country'),
+                            "latitude": lat,
+                            "longitude": lng
+                        })
+                        
+                        if not city_coords:
+                            city_coords = {"lat": lat, "lng": lng}
+                except (ValueError, TypeError):
+                    continue
+        
+        if not city_airports:
+            raise HTTPException(status_code=404, detail=f"No airports found for city: {request.city}")
+        
+        return {
+            "city": request.city,
+            "country": city_airports[0].get("country", "Unknown"),
+            "coordinates": city_coords,
+            "airports": city_airports[:5]  # Top 5 airports
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logging.error(f"Location resolution error: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to resolve location: {str(e)}")
+
+@app.post("/process/dates")
+async def process_dates(request: DateProcessRequest):
+    """Process dates and infer trip duration"""
+    try:
+        from datetime import datetime, timedelta
+        
+        start_date = datetime.strptime(request.start_date, "%Y-%m-%d")
+        
+        # Default to 4 days if no duration specified
+        duration_days = request.duration_days or 4
+        end_date = start_date + timedelta(days=duration_days - 1)
+        
+        return {
+            "start_date": start_date.strftime("%Y-%m-%d"),
+            "end_date": end_date.strftime("%Y-%m-%d"),
+            "duration_days": duration_days,
+            "weekend_trip": start_date.weekday() >= 4,  # Friday or later
+            "days_until_trip": (start_date - datetime.now()).days
+        }
+        
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=f"Invalid date format: {str(e)}")
+    except Exception as e:
+        logging.error(f"Date processing error: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to process dates: {str(e)}")
+
+@app.post("/trips/save")
+async def save_trip(request: TripSaveRequest):
+    """Save planned trip for later access"""
+    try:
+        trip_id = f"trip_{len(saved_trips) + 1}_{int(time.time())}"
+        saved_trips[trip_id] = {
+            "id": trip_id,
+            "created_at": datetime.now().isoformat(),
+            "trip_data": request.trip_data
+        }
+        
+        return {"trip_id": trip_id, "status": "saved", "message": "Trip saved successfully"}
+        
+    except Exception as e:
+        logging.error(f"Save trip error: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to save trip: {str(e)}")
+
+@app.get("/trips/saved")
+async def get_saved_trips():
+    """Get user's saved trips"""
+    try:
+        return {"trips": list(saved_trips.values()), "count": len(saved_trips)}
+        
+    except Exception as e:
+        logging.error(f"Get saved trips error: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to get saved trips: {str(e)}")
+
+@app.get("/trips/{trip_id}")
+async def get_trip(trip_id: str):
+    """Get a specific saved trip"""
+    try:
+        if trip_id not in saved_trips:
+            raise HTTPException(status_code=404, detail="Trip not found")
+        
+        return saved_trips[trip_id]
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logging.error(f"Get trip error: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to get trip: {str(e)}")
+
+@app.post("/shortcuts/quick-plan")
+async def quick_plan_trip(request: QuickPlanRequest):
+    """Quick trip planning for Apple Shortcuts"""
+    try:
+        # Resolve location first
+        location_data = await resolve_location(LocationResolveRequest(city=request.destination))
+        
+        # Process dates
+        date_data = await process_dates(DateProcessRequest(
+            start_date=request.date,
+            duration_days=4  # Default 4-day trip
+        ))
+        
+        # Create a simple trip summary
+        trip_summary = {
+            "destination": request.destination,
+            "dates": date_data,
+            "travelers": request.adults,
+            "seat_class": request.seat_class,
+            "airports": location_data["airports"][:2],  # Top 2 airports
+            "coordinates": location_data["coordinates"]
+        }
+        
+        return {
+            "summary": f"Trip to {request.destination} for {request.adults} adults",
+            "trip_data": trip_summary,
+            "status": "planned",
+            "message": "Quick trip plan created successfully"
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logging.error(f"Quick plan error: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to create quick plan: {str(e)}")
+
+@app.get("/weather/{location}")
+async def get_weather(location: str, date: str = None):
+    """Get weather forecast for trip dates (placeholder)"""
+    try:
+        # This is a placeholder - you can integrate with OpenWeatherMap or similar
+        return {
+            "location": location,
+            "date": date or "2025-06-15",
+            "forecast": {
+                "temperature": "22°C",
+                "condition": "Sunny",
+                "humidity": "65%",
+                "wind": "10 km/h"
+            },
+            "note": "This is placeholder data. Integrate with a weather API for real data."
+        }
+        
+    except Exception as e:
+        logging.error(f"Weather error: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to get weather: {str(e)}")
+
+@app.get("/health/extended")
+async def health_check_extended():
+    """Extended health check with endpoint status"""
+    try:
+        # Test basic functionality
+        airports = await get_airports()
+        
+        return {
+            "status": "healthy",
+            "timestamp": datetime.now().isoformat(),
+            "endpoints": {
+                "airports": "available",
+                "flights": "available", 
+                "hotels": "available",
+                "itinerary": "available",
+                "predicthq": "available"
+            },
+            "data": {
+                "airports_count": len(airports),
+                "saved_trips_count": len(saved_trips)
+            }
+        }
+        
+    except Exception as e:
+        return {
+            "status": "degraded",
+            "timestamp": datetime.now().isoformat(),
+            "error": str(e)
+        }
