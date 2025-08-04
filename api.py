@@ -1241,11 +1241,129 @@ async def resolve_location(request: LocationResolveRequest):
         city_airports = []
         city_coords = None
         
+        # Debug: Let's see what fields are available in the first airport
+        if airports and len(airports) > 0:
+            logging.info(f"Sample airport fields: {list(airports[0].keys())}")
+        
+        # Global major city mappings with multiple search strategies
+        major_city_mappings = {
+            'tokyo': {
+                'iata_codes': ['NRT', 'HND'],
+                'city_names': ['tokyo', 'narita', 'kawasaki', 'haneda'],
+                'airport_names': ['narita international', 'haneda airport', 'tokyo haneda', 'tokyo narita']
+            },
+            'paris': {
+                'iata_codes': ['CDG', 'ORY'],
+                'city_names': ['paris', 'roissy', 'orly'],
+                'airport_names': ['charles de gaulle', 'orly airport', 'roissy charles de gaulle']
+            },
+            'london': {
+                'iata_codes': ['LHR', 'LGW', 'STN'],
+                'city_names': ['london', 'heathrow', 'gatwick', 'stansted'],
+                'airport_names': ['heathrow airport', 'gatwick airport', 'stansted airport']
+            },
+            'new york': {
+                'iata_codes': ['JFK', 'LGA', 'EWR'],
+                'city_names': ['new york', 'jfk', 'laguardia', 'newark'],
+                'airport_names': ['john f kennedy', 'laguardia airport', 'newark liberty']
+            },
+            'los angeles': {
+                'iata_codes': ['LAX', 'BUR', 'ONT'],
+                'city_names': ['los angeles', 'lax', 'burbank', 'ontario'],
+                'airport_names': ['los angeles international', 'burbank airport', 'ontario international']
+            },
+            'singapore': {
+                'iata_codes': ['SIN', 'XSP'],
+                'city_names': ['singapore', 'changi'],
+                'airport_names': ['changi airport', 'singapore changi']
+            },
+            'dubai': {
+                'iata_codes': ['DXB', 'DWC'],
+                'city_names': ['dubai'],
+                'airport_names': ['dubai international', 'al maktoum']
+            },
+            'beijing': {
+                'iata_codes': ['PEK', 'PKX'],
+                'city_names': ['beijing', 'capital'],
+                'airport_names': ['beijing capital', 'daxing international']
+            },
+            'shanghai': {
+                'iata_codes': ['PVG', 'SHA'],
+                'city_names': ['shanghai', 'pudong', 'hongqiao'],
+                'airport_names': ['pudong international', 'hongqiao airport']
+            },
+            'hong kong': {
+                'iata_codes': ['HKG'],
+                'city_names': ['hong kong'],
+                'airport_names': ['hong kong international', 'chek lap kok']
+            }
+        }
+        
+        # First pass: Look for major city airports by IATA code (highest priority)
+        major_airports_found = []
+        if city_name in major_city_mappings:
+            for airport in airports:
+                airport_iata = airport.get('code', '').upper()
+                if airport_iata in major_city_mappings[city_name]['iata_codes']:
+                    try:
+                        lat = float(airport.get('latitude', 0))
+                        lng = float(airport.get('longitude', 0))
+                        
+                        if lat != 0 and lng != 0:
+                            major_airports_found.append({
+                                "iata": airport.get('code'),
+                                "name": airport.get('name'),
+                                "city": airport.get('city'),
+                                "country": airport.get('country'),
+                                "latitude": lat,
+                                "longitude": lng,
+                                "priority": 1  # Highest priority
+                            })
+                            
+                            if not city_coords:
+                                city_coords = {"lat": lat, "lng": lng}
+                    except (ValueError, TypeError):
+                        continue
+        
+        # If we found major airports, return them
+        if major_airports_found:
+            return {
+                "city": request.city,
+                "country": major_airports_found[0].get("country", "Unknown"),
+                "coordinates": city_coords,
+                "airports": major_airports_found[:5]  # Top 5 major airports
+            }
+        
+        # Second pass: Look for airports by name/city matching
         for airport in airports:
+            # Use the correct field names from the CSV
             airport_city = airport.get('city', '').lower()
             airport_name = airport.get('name', '').lower()
+            airport_iata = airport.get('code', '').lower()
             
-            if city_name in airport_city or city_name in airport_name:
+            # Check if this is a major city airport by name matching
+            is_major_city_airport = False
+            if city_name in major_city_mappings:
+                # Check city names
+                for city_term in major_city_mappings[city_name]['city_names']:
+                    if city_term in airport_city or city_term in airport_name:
+                        is_major_city_airport = True
+                        break
+                
+                # Check airport names
+                if not is_major_city_airport:
+                    for airport_term in major_city_mappings[city_name]['airport_names']:
+                        if airport_term in airport_name:
+                            is_major_city_airport = True
+                            break
+            
+            # Regular matching
+            regular_match = (city_name in airport_city or 
+                           city_name in airport_name or 
+                           city_name in airport_iata or
+                           airport_city in city_name)
+            
+            if regular_match or is_major_city_airport:
                 try:
                     lat = float(airport.get('latitude', 0))
                     lng = float(airport.get('longitude', 0))
@@ -1265,8 +1383,39 @@ async def resolve_location(request: LocationResolveRequest):
                 except (ValueError, TypeError):
                     continue
         
+        # If still no results, try a more aggressive search
         if not city_airports:
-            raise HTTPException(status_code=404, detail=f"No airports found for city: {request.city}")
+            for airport in airports:
+                airport_name = airport.get('name', '').lower()
+                # Look for city name in airport name (e.g., "Tokyo Haneda Airport")
+                if city_name in airport_name:
+                    try:
+                        lat = float(airport.get('latitude', 0))
+                        lng = float(airport.get('longitude', 0))
+                        
+                        if lat != 0 and lng != 0:
+                            city_airports.append({
+                                "iata": airport.get('code'),
+                                "name": airport.get('name'),
+                                "city": airport.get('city'),
+                                "country": airport.get('country'),
+                                "latitude": lat,
+                                "longitude": lng
+                            })
+                            
+                            if not city_coords:
+                                city_coords = {"lat": lat, "lng": lng}
+                    except (ValueError, TypeError):
+                        continue
+        
+        if not city_airports:
+            # Return a helpful error with some sample data
+            sample_airports = airports[:3] if airports else []
+            logging.error(f"No airports found for '{city_name}'. Sample airports: {sample_airports}")
+            raise HTTPException(
+                status_code=404, 
+                detail=f"No airports found for city: {request.city}. Available fields: {list(airports[0].keys()) if airports else 'No airports loaded'}"
+            )
         
         return {
             "city": request.city,
@@ -1435,3 +1584,28 @@ async def health_check_extended():
             "timestamp": datetime.now().isoformat(),
             "error": str(e)
         }
+
+@app.get("/debug/airports/sample")
+async def debug_airports_sample():
+    """Debug endpoint to see airport data structure"""
+    try:
+        airports = await get_airports()
+        
+        if not airports:
+            return {"error": "No airports loaded"}
+        
+        # Return first 3 airports with their field names
+        sample_airports = airports[:3]
+        
+        return {
+            "total_airports": len(airports),
+            "sample_fields": list(airports[0].keys()) if airports else [],
+            "sample_airports": sample_airports
+        }
+        
+    except Exception as e:
+        return {"error": str(e)}
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8000)
