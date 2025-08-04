@@ -22,6 +22,9 @@ from pydantic import BaseModel, Field, field_validator
 from typing import List, Optional, Dict, Any
 from dotenv import load_dotenv
 from predicthq import Client
+import csv
+import io
+import math
 
 ###############################
 # Local Application Imports   #
@@ -41,6 +44,48 @@ phq = Client(access_token=os.environ.get("PREDICTHQ_ACCESS_TOKEN"))
 ###############################
 # Constants & Configuration   #
 ###############################
+
+# Airport API constants
+CSV_URL = "https://raw.githubusercontent.com/lxndrblz/Airports/refs/heads/main/airports.csv"
+airports_cache = None
+
+def haversine(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+    """Calculate the great circle distance between two points on Earth."""
+    R = 6371  # Earth's radius in kilometers
+    d_lat = math.radians(lat2 - lat1)
+    d_lon = math.radians(lon2 - lon1)
+    a = (
+        math.sin(d_lat / 2) * math.sin(d_lat / 2) +
+        math.cos(math.radians(lat1)) * math.cos(math.radians(lat2)) *
+        math.sin(d_lon / 2) * math.sin(d_lon / 2)
+    )
+    c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
+    return R * c
+
+async def get_airports():
+    """Fetch and cache airport data from CSV."""
+    global airports_cache
+    if airports_cache is not None:
+        return airports_cache
+    
+    try:
+        response = requests.get(CSV_URL, timeout=30)
+        response.raise_for_status()
+        
+        # Parse CSV data
+        csv_text = response.text
+        airports = []
+        
+        # Use csv.DictReader to parse the CSV
+        csv_reader = csv.DictReader(io.StringIO(csv_text))
+        for row in csv_reader:
+            airports.append(row)
+        
+        airports_cache = airports
+        return airports
+    except Exception as e:
+        logging.error(f"Failed to fetch airports data: {e}")
+        raise HTTPException(status_code=500, detail="Failed to fetch airports data")
 
 # Helper functions for parsing price and stops and run blocking operations
 def _parse_price(price):
@@ -1093,4 +1138,63 @@ def get_itinerary(
     except Exception as err:
         logging.error(f"Itinerary endpoint error: {err}")
         raise HTTPException(status_code=500, detail=f"Failed to fetch itinerary: {err}")
+
+@app.get("/airports/nearest")
+async def get_nearest_airport(lat: float, lng: float):
+    """Find the nearest airport to given coordinates."""
+    if lat is None or lng is None:
+        raise HTTPException(status_code=400, detail="Missing or invalid lat/lng")
+    
+    try:
+        airports = await get_airports()
+        min_dist = float('inf')
+        nearest = None
+        preferred_candidates = []
+        
+        for airport in airports:
+            iata = airport.get('code')
+            try:
+                airport_lat = float(airport.get('latitude', 0))
+                airport_lng = float(airport.get('longitude', 0))
+            except (ValueError, TypeError):
+                continue
+            
+            # Skip if missing IATA, or coordinates are invalid or zero
+            if not iata or airport_lat == 0 or airport_lng == 0:
+                continue
+            
+            dist = haversine(lat, lng, airport_lat, airport_lng)
+            
+            # Prefer airports with 'International' or 'Regional' in the name within 50km
+            airport_name = airport.get('name', '').lower()
+            if ('international' in airport_name or 'regional' in airport_name) and dist < 50:
+                preferred_candidates.append({'airport': airport, 'dist': dist})
+            
+            if dist < min_dist:
+                min_dist = dist
+                nearest = airport
+        
+        # If there are preferred candidates, pick the closest among them
+        if preferred_candidates:
+            preferred_candidates.sort(key=lambda x: x['dist'])
+            nearest = preferred_candidates[0]['airport']
+            min_dist = preferred_candidates[0]['dist']
+        
+        if not nearest:
+            raise HTTPException(status_code=404, detail="No airport found")
+        
+        return {
+            "iata": nearest.get('code'),
+            "name": nearest.get('name'),
+            "latitude": nearest.get('latitude'),
+            "longitude": nearest.get('longitude'),
+            "country": nearest.get('country'),
+            "distance_km": round(min_dist, 2)
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logging.error(f"Airport search error: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to find nearest airport: {str(e)}")
 
