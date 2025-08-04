@@ -363,7 +363,7 @@ class AirbnbDetailsResponse(BaseModel):
 
 # New models for simple endpoints
 class LocationResolveRequest(BaseModel):
-    city: str
+    query: str = Field(..., description="City name or IATA airport code to search for")
 
 class DateProcessRequest(BaseModel):
     start_date: str
@@ -1228,9 +1228,10 @@ saved_trips = {}
 
 @app.post("/resolve/location")
 async def resolve_location(request: LocationResolveRequest):
-    """Convert city names to coordinates and find nearest airports"""
+    """Convert city names or IATA codes to coordinates and find airports"""
     try:
-        city_name = request.city.lower()
+        query = request.query.strip().upper()  # Normalize to uppercase for IATA codes
+        query_lower = query.lower()  # Keep lowercase for city name matching
         airports = await get_airports()
         
         # Find airports in the city
@@ -1295,12 +1296,40 @@ async def resolve_location(request: LocationResolveRequest):
             }
         }
         
-        # First pass: Look for major city airports by IATA code (highest priority)
-        major_airports_found = []
-        if city_name in major_city_mappings:
+        # First pass: Direct IATA code lookup (highest priority)
+        if len(query) == 3:  # IATA codes are 3 characters
             for airport in airports:
                 airport_iata = airport.get('code', '').upper()
-                if airport_iata in major_city_mappings[city_name]['iata_codes']:
+                if airport_iata == query:
+                    try:
+                        lat = float(airport.get('latitude', 0))
+                        lng = float(airport.get('longitude', 0))
+                        
+                        if lat != 0 and lng != 0:
+                            return {
+                                "query": request.query,
+                                "type": "airport",
+                                "country": airport.get('country', 'Unknown'),
+                                "coordinates": {"lat": lat, "lng": lng},
+                                "airports": [{
+                                    "iata": airport.get('code'),
+                                    "name": airport.get('name'),
+                                    "city": airport.get('city'),
+                                    "country": airport.get('country'),
+                                    "latitude": lat,
+                                    "longitude": lng,
+                                    "priority": 1
+                                }]
+                            }
+                    except (ValueError, TypeError):
+                        continue
+        
+        # Second pass: Look for major city airports by IATA code
+        major_airports_found = []
+        if query_lower in major_city_mappings:
+            for airport in airports:
+                airport_iata = airport.get('code', '').upper()
+                if airport_iata in major_city_mappings[query_lower]['iata_codes']:
                     try:
                         lat = float(airport.get('latitude', 0))
                         lng = float(airport.get('longitude', 0))
@@ -1324,13 +1353,14 @@ async def resolve_location(request: LocationResolveRequest):
         # If we found major airports, return them
         if major_airports_found:
             return {
-                "city": request.city,
+                "query": request.query,
+                "type": "city",
                 "country": major_airports_found[0].get("country", "Unknown"),
                 "coordinates": city_coords,
                 "airports": major_airports_found[:5]  # Top 5 major airports
             }
         
-        # Second pass: Look for airports by name/city matching
+        # Third pass: Look for airports by name/city matching
         for airport in airports:
             # Use the correct field names from the CSV
             airport_city = airport.get('city', '').lower()
@@ -1339,25 +1369,25 @@ async def resolve_location(request: LocationResolveRequest):
             
             # Check if this is a major city airport by name matching
             is_major_city_airport = False
-            if city_name in major_city_mappings:
+            if query_lower in major_city_mappings:
                 # Check city names
-                for city_term in major_city_mappings[city_name]['city_names']:
+                for city_term in major_city_mappings[query_lower]['city_names']:
                     if city_term in airport_city or city_term in airport_name:
                         is_major_city_airport = True
                         break
                 
                 # Check airport names
                 if not is_major_city_airport:
-                    for airport_term in major_city_mappings[city_name]['airport_names']:
+                    for airport_term in major_city_mappings[query_lower]['airport_names']:
                         if airport_term in airport_name:
                             is_major_city_airport = True
                             break
             
             # Regular matching
-            regular_match = (city_name in airport_city or 
-                           city_name in airport_name or 
-                           city_name in airport_iata or
-                           airport_city in city_name)
+            regular_match = (query_lower in airport_city or 
+                           query_lower in airport_name or 
+                           query_lower in airport_iata or
+                           airport_city in query_lower)
             
             if regular_match or is_major_city_airport:
                 try:
@@ -1379,12 +1409,12 @@ async def resolve_location(request: LocationResolveRequest):
                 except (ValueError, TypeError):
                     continue
         
-        # If still no results, try a more aggressive search
+        # Fourth pass: If still no results, try a more aggressive search
         if not city_airports:
             for airport in airports:
                 airport_name = airport.get('name', '').lower()
-                # Look for city name in airport name (e.g., "Tokyo Haneda Airport")
-                if city_name in airport_name:
+                # Look for query in airport name (e.g., "Tokyo Haneda Airport")
+                if query_lower in airport_name:
                     try:
                         lat = float(airport.get('latitude', 0))
                         lng = float(airport.get('longitude', 0))
@@ -1407,14 +1437,15 @@ async def resolve_location(request: LocationResolveRequest):
         if not city_airports:
             # Return a helpful error with some sample data
             sample_airports = airports[:3] if airports else []
-            logging.error(f"No airports found for '{city_name}'. Sample airports: {sample_airports}")
+            logging.error(f"No airports found for '{query}'. Sample airports: {sample_airports}")
             raise HTTPException(
                 status_code=404, 
-                detail=f"No airports found for city: {request.city}. Available fields: {list(airports[0].keys()) if airports else 'No airports loaded'}"
+                detail=f"No airports found for query: {request.query}. Available fields: {list(airports[0].keys()) if airports else 'No airports loaded'}"
             )
         
         return {
-            "city": request.city,
+            "query": request.query,
+            "type": "city",
             "country": city_airports[0].get("country", "Unknown"),
             "coordinates": city_coords,
             "airports": city_airports[:5]  # Top 5 airports

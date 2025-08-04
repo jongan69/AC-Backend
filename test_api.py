@@ -1189,10 +1189,11 @@ def test_resolve_location_success(mock_get_airports):
     ]
     mock_get_airports.return_value = mock_airports
     
-    response = client.post("/resolve/location", json={"city": "Tokyo"})
+    response = client.post("/resolve/location", json={"query": "Tokyo"})
     assert response.status_code == 200
     data = response.json()
-    assert data["city"] == "Tokyo"
+    assert data["query"] == "Tokyo"
+    assert data["type"] == "city"
     assert data["country"] == "Japan"
     assert "coordinates" in data
     assert "airports" in data
@@ -1205,10 +1206,39 @@ def test_resolve_location_not_found(mock_get_airports):
     """Test location resolution with unknown city."""
     mock_get_airports.return_value = []
     
-    response = client.post("/resolve/location", json={"city": "UnknownCity"})
+    response = client.post("/resolve/location", json={"query": "UnknownCity"})
     assert response.status_code == 404
     data = response.json()
     assert "No airports found" in data["detail"]
+
+@pytest.mark.functional
+@pytest.mark.unit
+@patch('api.get_airports')
+def test_resolve_location_iata_code(mock_get_airports):
+    """Test location resolution with IATA airport code."""
+    # Mock airport data for NRT
+    mock_airports = [
+        {
+            'code': 'NRT',
+            'name': 'Narita International Airport',
+            'city': 'Narita',
+            'country': 'Japan',
+            'latitude': '35.7720',
+            'longitude': '140.3929'
+        }
+    ]
+    mock_get_airports.return_value = mock_airports
+    
+    response = client.post("/resolve/location", json={"query": "NRT"})
+    assert response.status_code == 200
+    data = response.json()
+    assert data["query"] == "NRT"
+    assert data["type"] == "airport"
+    assert data["country"] == "Japan"
+    assert "coordinates" in data
+    assert "airports" in data
+    assert len(data["airports"]) == 1
+    assert data["airports"][0]["iata"] == "NRT"
 
 @pytest.mark.functional
 @pytest.mark.unit
