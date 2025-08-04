@@ -7,7 +7,7 @@ import json
 import time
 import logging
 import asyncio
-from datetime import datetime
+from datetime import datetime, timedelta
 from functools import partial
 from concurrent.futures import ThreadPoolExecutor
 from multiprocessing import Process, Queue
@@ -131,7 +131,6 @@ logging.basicConfig(level=logging.INFO)
 
 # --- Move this function to the top level for multiprocessing pickling ---
 def call_with_timeout_target(q, func, *args, **kwargs):
-    import logging
     try:
         logging.info(f"{func.__name__} started with args={args}, kwargs={kwargs}")
         result = func(*args, **kwargs)
@@ -209,7 +208,6 @@ class HotelSearchRequest(BaseModel):
     
     @field_validator('checkin_date')
     def checkin_date_not_in_past(cls, v):
-        import datetime
         checkin = datetime.datetime.strptime(v, "%Y-%m-%d").date()
         today = datetime.date.today()
         if checkin < today:
@@ -244,7 +242,6 @@ class FlightSearchRequest(BaseModel):
 
     @field_validator('return_date')
     def return_date_valid_for_round_trip(cls, v, info):
-        import datetime
         trip = info.data.get('trip')
         if trip == 'round-trip':
             if not v:
@@ -883,7 +880,6 @@ def search_airbnbs(req: AirbnbSearchRequest):
             try:
                 price = float(item["price"]["unit"]["amount"])
                 qualifier = item["price"]["unit"].get("qualifier", "")
-                import re
                 match = re.search(r"for (\\d+) nights?", qualifier)
                 if match:
                     nights = int(match.group(1))
@@ -1433,9 +1429,7 @@ async def resolve_location(request: LocationResolveRequest):
 @app.post("/process/dates")
 async def process_dates(request: DateProcessRequest):
     """Process dates and infer trip duration"""
-    try:
-        from datetime import datetime, timedelta
-        
+    try:        
         start_date = datetime.strptime(request.start_date, "%Y-%m-%d")
         
         # Default to 4 days if no duration specified
@@ -1534,27 +1528,6 @@ async def quick_plan_trip(request: QuickPlanRequest):
         logging.error(f"Quick plan error: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to create quick plan: {str(e)}")
 
-@app.get("/weather/{location}")
-async def get_weather(location: str, date: str = None):
-    """Get weather forecast for trip dates (placeholder)"""
-    try:
-        # This is a placeholder - you can integrate with OpenWeatherMap or similar
-        return {
-            "location": location,
-            "date": date or "2025-06-15",
-            "forecast": {
-                "temperature": "22°C",
-                "condition": "Sunny",
-                "humidity": "65%",
-                "wind": "10 km/h"
-            },
-            "note": "This is placeholder data. Integrate with a weather API for real data."
-        }
-        
-    except Exception as e:
-        logging.error(f"Weather error: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to get weather: {str(e)}")
-
 @app.get("/health/extended")
 async def health_check_extended():
     """Extended health check with endpoint status"""
@@ -1585,27 +1558,6 @@ async def health_check_extended():
             "error": str(e)
         }
 
-@app.get("/debug/airports/sample")
-async def debug_airports_sample():
-    """Debug endpoint to see airport data structure"""
-    try:
-        airports = await get_airports()
-        
-        if not airports:
-            return {"error": "No airports loaded"}
-        
-        # Return first 3 airports with their field names
-        sample_airports = airports[:3]
-        
-        return {
-            "total_airports": len(airports),
-            "sample_fields": list(airports[0].keys()) if airports else [],
-            "sample_airports": sample_airports
-        }
-        
-    except Exception as e:
-        return {"error": str(e)}
-
-if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+# if __name__ == "__main__":
+#     import uvicorn
+#     uvicorn.run(app, host="0.0.0.0", port=8000)
